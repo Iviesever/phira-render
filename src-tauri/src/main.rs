@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-prpr::tl_file!("main" mtl);
+prpr_l10n::tl_file!("main" mtl);
 
 mod common;
 mod ipc;
@@ -117,6 +117,7 @@ async fn main() -> Result<()> {
             get_rpe_charts,
             test_ffmpeg,
             open_app_folder,
+            get_refresh_rate,
         ])
         .on_system_tray_event(|app, event| match event {
             SystemTrayEvent::MenuItemClick { id, .. } => {
@@ -529,4 +530,36 @@ fn open_app_folder() -> Result<(), InvokeError> {
         Ok(())
     })()
     .map_err(InvokeError::from_anyhow)
+}
+
+#[tauri::command]
+fn get_refresh_rate() -> u32 {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // Use WMI via PowerShell to reliably query the physical display's refresh rate.
+        // FFI approaches (GetDeviceCaps, EnumDisplaySettingsW) fail in Remote Desktop
+        // sessions because they only see the remote display adapter (e.g., 32 Hz).
+        // WMI's Win32_VideoController reports ALL adapters including physical GPUs.
+        let result = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                "(Get-CimInstance Win32_VideoController | Where-Object { $_.CurrentRefreshRate -gt 1 -and $_.Name -notmatch 'Remote|Virtual|Basic' } | Sort-Object CurrentRefreshRate -Descending | Select-Object -First 1).CurrentRefreshRate"
+            ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+
+        if let Ok(output) = result {
+            if let Ok(s) = String::from_utf8(output.stdout) {
+                if let Ok(rate) = s.trim().parse::<u32>() {
+                    if rate > 1 {
+                        return rate;
+                    }
+                }
+            }
+        }
+        60
+    }
+    #[cfg(not(target_os = "windows"))]
+    { 60 }
 }

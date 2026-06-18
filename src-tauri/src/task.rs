@@ -71,10 +71,48 @@ impl Task {
             .chars()
             .filter(|&it| it == '-' || it == '_' || it == ' ' || it.is_alphanumeric())
             .collect();
-        let output = output_dir()?.join(format!(
-            "{} {safe_name}.mp4",
-            Local::now().format("%Y-%m-%d %H-%M-%S")
-        ));
+        let output = if let Some(ref path_str) = params.config.export_path {
+            let trimmed = path_str.trim().trim_matches('"').trim_matches('\'').trim();
+            if !trimmed.is_empty() {
+                let path = PathBuf::from(trimmed);
+                if path.is_dir() {
+                    path.join(format!(
+                        "{} {safe_name}.mp4",
+                        Local::now().format("%Y-%m-%d %H-%M-%S")
+                    ))
+                } else if path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp4")) {
+                    path
+                } else {
+                    if trimmed.to_lowercase().ends_with(".mp4") {
+                        path
+                    } else {
+                        if let Err(e) = std::fs::create_dir_all(&path) {
+                            error!("Failed to create custom export directory: {:?}", e);
+                        }
+                        path.join(format!(
+                            "{} {safe_name}.mp4",
+                            Local::now().format("%Y-%m-%d %H-%M-%S")
+                        ))
+                    }
+                }
+            } else {
+                output_dir()?.join(format!(
+                    "{} {safe_name}.mp4",
+                    Local::now().format("%Y-%m-%d %H-%M-%S")
+                ))
+            }
+        } else {
+            output_dir()?.join(format!(
+                "{} {safe_name}.mp4",
+                Local::now().format("%Y-%m-%d %H-%M-%S")
+            ))
+        };
+
+        if let Some(parent) = output.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                error!("Failed to create output parent directory: {:?}", e);
+            }
+        }
 
         Ok(Self {
             id,

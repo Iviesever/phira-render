@@ -39,6 +39,8 @@ en:
 
   preview: Preview
   render: Render
+  export-preview: Export Preview
+  export-preview-tips: Export using preview-identical settings (monitor refresh rate, high quality CRF encoding), ignoring configured FPS and bitrate
 
   render-started: Rendering has started!
   see-tasks: See tasks
@@ -80,6 +82,8 @@ zh-CN:
 
   preview: 预览
   render: 渲染
+  export-preview: 导出预览
+  export-preview-tips: 以预览一致的行为导出（自动检测显示器刷新率作为帧率、CRF 高画质编码），忽略界面上设置的帧数和码率
 
   render-started: 视频已开始渲染！
   see-tasks: 查看任务列表
@@ -228,6 +232,29 @@ async function previewChart() {
   }
 }
 
+async function exportPreview() {
+  try {
+    if (!(await invoke('test_ffmpeg'))) {
+      await dialog.message(t('ffmpeg-not-found'));
+      await invoke('open_app_folder');
+      await shell.open('https://mivik.moe/ffmpeg-windows/');
+      return false;
+    }
+    let params = await buildParams();
+    if (!params) return false;
+    // Query the monitor's actual refresh rate to match preview behavior exactly
+    const monitorFps = (await invoke('get_refresh_rate')) as number;
+    params.config.fps = monitorFps;
+    params.config.bitrate = '0';  // CRF mode: high quality encoding
+    params.config.exportPreview = true;  // Use preview-identical scene structure
+    await invoke('post_render', { params });
+    return true;
+  } catch (e) {
+    toastError(e);
+    return false;
+  }
+}
+
 const renderMsg = ref(''),
   renderProgress = ref<number>(),
   renderDuration = ref<number>();
@@ -289,6 +316,7 @@ function tryParseAspect(): number | undefined {
         <v-btn variant="text" @click="stepIndex && stepIndex--" v-t="'prev-step'"></v-btn>
         <div class="flex-grow-1"></div>
         <v-btn v-if="step === 'options'" variant="tonal" @click="previewChart" class="mr-2" v-t="'preview'"></v-btn>
+        <v-btn v-if="step === 'options'" variant="tonal" color="success" @click="exportPreview().then(ok => ok && stepIndex++)" class="mr-2"><v-tooltip activator="parent" location="bottom">{{ t('export-preview-tips') }}</v-tooltip>{{ t('export-preview') }}</v-btn>
         <v-btn variant="tonal" @click="moveNext">{{ step === 'options' ? t('render') : t('next-step') }}</v-btn>
       </div>
 

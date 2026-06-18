@@ -1,16 +1,16 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
-prpr::tl_file!("render");
+prpr_l10n::tl_file!("render" tl);
 
 use anyhow::{bail, Context, Result};
 use macroquad::{miniquad::gl::GLuint, prelude::*};
 use prpr::{
-    config::{ChallengeModeColor, Config, Mods},
+    config::{Config, Mods},
     core::{internal_id, MSRenderTarget, NoteKind},
     fs,
     info::ChartInfo,
-    scene::{BasicPlayer, GameMode, GameScene, LoadingScene},
+    scene::{BasicPlayer, GameMode, GameScene, LoadingScene, NextScene, Scene},
     time::TimeManager,
-    ui::{FontArc, TextPainter},
+    ui::{FontArc, TextPainter, Ui},
     Main,
 };
 use sasa::AudioClip;
@@ -38,8 +38,6 @@ pub struct RenderConfig {
     bitrate: String,
 
     aggressive: bool,
-    challenge_color: ChallengeModeColor,
-    challenge_rank: u32,
     disable_effect: bool,
     double_hint: bool,
     fxaa: bool,
@@ -53,28 +51,31 @@ pub struct RenderConfig {
     speed: f32,
     volume_music: f32,
     volume_sfx: f32,
+    #[serde(default)]
+    show_player: bool,
+    #[serde(default)]
+    export_preview: bool,
+    #[serde(default)]
+    pub export_path: Option<String>,
 }
 
 impl RenderConfig {
     pub fn to_config(&self) -> Config {
-        Config {
-            aggressive: self.aggressive,
-            challenge_color: self.challenge_color.clone(),
-            challenge_rank: self.challenge_rank,
-            disable_effect: self.disable_effect,
-            double_hint: self.double_hint,
-            fxaa: self.fxaa,
-            note_scale: self.note_scale,
-            particle: self.particle,
-            player_name: self.player_name.clone(),
-            player_rks: self.player_rks,
-            sample_count: self.sample_count,
-            res_pack_path: self.res_pack_path.clone(),
-            speed: self.speed,
-            volume_music: self.volume_music,
-            volume_sfx: self.volume_sfx,
-            ..Default::default()
-        }
+        let mut config = Config::default();
+        config.aggressive = self.aggressive;
+        config.disable_effect = self.disable_effect;
+        config.double_hint = self.double_hint;
+        config.fxaa = self.fxaa;
+        config.note_scale = self.note_scale;
+        config.particle = self.particle;
+        config.player_name = self.player_name.clone();
+        config.player_rks = self.player_rks;
+        config.sample_count = self.sample_count;
+        config.res_pack_path = self.res_pack_path.clone();
+        config.speed = self.speed;
+        config.volume_music = self.volume_music;
+        config.volume_sfx = self.volume_sfx;
+        config
     }
 }
 
@@ -132,22 +133,26 @@ pub fn find_ffmpeg() -> Result<Option<String>> {
     fn test(path: impl AsRef<OsStr>) -> bool {
         matches!(cmd_hidden(path).arg("-version").output(), Ok(_))
     }
-    if test("ffmpeg") {
-        return Ok(Some("ffmpeg".to_owned()));
-    }
-    eprintln!("Failed to find global ffmpeg. Using bundled ffmpeg");
+    
     let exe_dir = std::env::current_exe()?.parent().unwrap().to_owned();
-    let ffmpeg = if cfg!(target_os = "windows") {
+    let ffmpeg_name = if cfg!(target_os = "windows") {
         "ffmpeg.exe"
     } else {
         "ffmpeg"
     };
-    let ffmpeg = exe_dir.join(ffmpeg);
-    Ok(if test(&ffmpeg) {
-        Some(ffmpeg.display().to_string())
-    } else {
-        None
-    })
+    let local_ffmpeg = exe_dir.join(ffmpeg_name);
+    
+    // Prioritize local ffmpeg over global PATH ffmpeg
+    if test(&local_ffmpeg) {
+        return Ok(Some(local_ffmpeg.display().to_string()));
+    }
+    
+    if test("ffmpeg") {
+        return Ok(Some("ffmpeg".to_owned()));
+    }
+    
+    eprintln!("Failed to find local and global ffmpeg.");
+    Ok(None)
 }
 
 pub async fn main() -> Result<()> {
@@ -186,15 +191,31 @@ pub async fn main() -> Result<()> {
     let (chart, ..) = GameScene::load_chart(fs.deref_mut(), &info)
         .await
         .with_context(|| tl!("load-chart-failed"))?;
+    let mut res_pack_fs = if let Some(path) = &params.config.res_pack_path {
+        prpr::fs::fs_from_file(path.as_ref()).ok()
+    } else {
+        None
+    };
+
     macro_rules! ld {
             ($path:literal) => {
-                AudioClip::new(load_file($path).await?)
-                    .with_context(|| tl!("load-sfx-failed", "name" => $path))?
+                async {
+                    let bytes = if let Some(fs) = &mut res_pack_fs {
+                        if let Ok(b) = fs.load_file($path).await {
+                            b
+                        } else {
+                            load_file($path).await.unwrap()
+                        }
+                    } else {
+                        load_file($path).await.unwrap()
+                    };
+                    AudioClip::new(bytes).with_context(|| tl!("load-sfx-failed", "name" => $path))
+                }.await?
             };
         }
     let music: Result<_> = async { AudioClip::new(fs.load_file(&info.music).await?) }.await;
     let music = music.with_context(|| tl!("load-music-failed"))?;
-    let ending = ld!("ending.mp3");
+    let ending = ld!("ending.ogg");
     let track_length = music.length() as f64;
     let sfx_click = ld!("click.ogg");
     let sfx_drag = ld!("drag.ogg");
@@ -205,8 +226,24 @@ pub async fn main() -> Result<()> {
     let volume_music = std::mem::take(&mut config.volume_music);
     let volume_sfx = std::mem::take(&mut config.volume_sfx);
 
+    let fps = params.config.fps;
+    let frame_delta = 1. / fps as f32;
+
+    // Loading scene: BEFORE_TIME(1.0) + transition_time(1.4) + wait_time(0.4) = 2.8
+    // +1 frame for the strict '>' comparison in loading.rs next_scene
+    // GameScene BEFORE_TIME: 0.7
+    let O: f64 = 2.8 + frame_delta as f64 + 0.7;
+    const A: f64 = 0.7 + 0.3 + 0.4;
+
     let length = track_length - chart.offset.min(0.) as f64 + 1.;
-    let video_length = O + length + A + params.config.ending_length;
+    let video_length = if params.config.show_player {
+        O + length + A + params.config.ending_length
+    } else {
+        // End exactly when the game scene fades to black.
+        // start_time = 2.8 + frame_delta
+        // game time for fade to black = track_length + 0.5 (WAIT_TIME) + 0.7 (AFTER_TIME) = track_length + 1.2
+        4.0 + frame_delta as f64 + track_length - chart.offset.min(0.) as f64
+    };
     let offset = chart.offset.max(0.);
 
     let render_start_time = Instant::now();
@@ -226,7 +263,7 @@ pub async fn main() -> Result<()> {
         let ratio = 1. / sample_rate as f64;
         for frame in 0..count {
             let position = frame as f64 * ratio;
-            let frame = music.sample(position as f32).unwrap_or_default();
+            let frame = music.sample(position as f64).unwrap_or_default();
             *it.next().unwrap() += frame.0 * volume_music;
             *it.next().unwrap() += frame.1 * volume_music;
         }
@@ -264,9 +301,11 @@ pub async fn main() -> Result<()> {
             volume_sfx,
         );
     }
-    let mut pos = O + length + A;
-    while place(pos, &ending, volume_music) != 0 {
-        pos += ending.frame_count() as f64 / sample_rate as f64;
+    if params.config.show_player {
+        let mut pos = O + length + A;
+        while place(pos, &ending, volume_music) != 0 {
+            pos += ending.frame_count() as f64 / sample_rate as f64;
+        }
     }
     let mut proc = cmd_hidden(&ffmpeg)
         .args("-y -f f32le -ar 44100 -ac 2 -i - -c:a mp3 -f mp3".split_whitespace())
@@ -291,10 +330,14 @@ pub async fn main() -> Result<()> {
         move || *(*my_time).borrow()
     }));
     static MSAA: AtomicBool = AtomicBool::new(false);
-    let player = build_player(&params.config).await?;
+    let player = if params.config.show_player {
+        Some(build_player(&params.config).await?)
+    } else {
+        None
+    };
     let mut main = Main::new(
         Box::new(
-            LoadingScene::new(GameMode::Normal, info, config, fs, Some(player), None, None, None).await?,
+            LoadingScene::new(GameMode::Normal, info, config, fs, player, None, None, None, None).await?,
         ),
         tm,
         {
@@ -316,11 +359,6 @@ pub async fn main() -> Result<()> {
     main.top_level = false;
     main.viewport = Some((0, 0, vw as _, vh as _));
 
-    const O: f64 = LoadingScene::TOTAL_TIME as f64 + GameScene::BEFORE_TIME as f64;
-    const A: f64 = 0.7 + 0.3 + 0.4;
-
-    let fps = params.config.fps;
-    let frame_delta = 1. / fps as f32;
 
     let codecs = String::from_utf8(
         cmd_hidden(&ffmpeg)
@@ -338,19 +376,29 @@ pub async fn main() -> Result<()> {
     }
     write!(&mut args, " -s {vw}x{vh} -r {fps} -pix_fmt rgba -i - -i")?;
 
-    let args2 = format!(
-        "-c:a copy -c:v {} -pix_fmt yuv420p -b:v {} -map 0:v:0 -map 1:a:0 -vf vflip -f mp4",
-        if use_cuda {
+    let codec = if use_cuda {
             "h264_nvenc"
         } else if has_qsv {
             "h264_qsv"
         } else if params.config.hardware_accel {
             bail!(tl!("no-hwacc"));
         } else {
-            // "libx264 -preset ultrafast"
             "libx264"
-        },
-        params.config.bitrate,
+        };
+
+    let quality_args = if params.config.bitrate == "0" {
+        // CRF/CQ mode for "Export Preview" — high quality, ignore bitrate
+        if use_cuda {
+            "-cq 18 -preset p4".to_owned()
+        } else {
+            "-crf 18 -preset medium".to_owned()
+        }
+    } else {
+        format!("-b:v {}", params.config.bitrate)
+    };
+
+    let args2 = format!(
+        "-c:a copy -c:v {codec} -pix_fmt yuv420p {quality_args} -map 0:v:0 -map 1:a:0 -vf vflip -f mp4",
     );
 
     let mut proc = cmd_hidden(&ffmpeg)
@@ -366,9 +414,10 @@ pub async fn main() -> Result<()> {
 
     let byte_size = vw as usize * vh as usize * 4;
 
-    let frames = (video_length / frame_delta as f64).ceil() as u64;
+    let frames = (video_length * fps as f64).ceil() as u64;
 
     const N: usize = 3;
+    let pipeline_depth = (N - 1).min(frames as usize);
     let mut pbos: [GLuint; N] = [0; N];
     unsafe {
         use miniquad::gl::*;
@@ -388,7 +437,8 @@ pub async fn main() -> Result<()> {
     send(IPCEvent::StartRender(frames));
 
     for frame in 0..frames {
-        *my_time.borrow_mut() = (frame as f32 * frame_delta).max(0.) as f64;
+        // Fix #3: use f64 arithmetic to eliminate f32 quantization jitter
+        *my_time.borrow_mut() = frame as f64 / fps as f64;
         gl.quad_gl.render_pass(Some(mst.output().render_pass));
         clear_background(BLACK);
         main.viewport = Some((0, 0, vw as _, vh as _));
@@ -406,6 +456,7 @@ pub async fn main() -> Result<()> {
             let tex = mst.output().texture.raw_miniquad_texture_handle();
             glBindFramebuffer(GL_READ_FRAMEBUFFER, internal_id(mst.output()));
 
+            // Async read current frame into its PBO slot
             glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[frame as usize % N]);
             glReadPixels(
                 0,
@@ -417,14 +468,43 @@ pub async fn main() -> Result<()> {
                 std::ptr::null_mut(),
             );
 
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[(frame + 1) as usize % N]);
-            let src = glMapBuffer(GL_PIXEL_PACK_BUFFER, 0x88B8);
+            // Fix #1: Only read from PBO after pipeline is primed (N-1 frames rendered)
+            // This eliminates the 2 garbage frames at the start
+            if frame >= pipeline_depth as u64 {
+                let read_idx = (frame as usize - pipeline_depth) % N;
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[read_idx]);
+                let mut src = glMapBuffer(GL_PIXEL_PACK_BUFFER, 0x88B8);
+                // Fix #2: If MapBuffer fails, force GPU sync and retry instead of silently dropping
+                if src.is_null() {
+                    glFinish();
+                    src = glMapBuffer(GL_PIXEL_PACK_BUFFER, 0x88B8);
+                }
+                if !src.is_null() {
+                    input.write_all(&std::slice::from_raw_parts(src as *const u8, byte_size))?;
+                    glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+                }
+            }
+        }
+        send(IPCEvent::Frame);
+    }
+
+    // Fix #1 (cont.): Flush remaining frames from the PBO pipeline
+    // Without this, the last N-1 frames would be lost
+    unsafe {
+        use miniquad::gl::*;
+        for i in 0..pipeline_depth {
+            let read_idx = (frames as usize - pipeline_depth + i) % N;
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[read_idx]);
+            let mut src = glMapBuffer(GL_PIXEL_PACK_BUFFER, 0x88B8);
+            if src.is_null() {
+                glFinish();
+                src = glMapBuffer(GL_PIXEL_PACK_BUFFER, 0x88B8);
+            }
             if !src.is_null() {
                 input.write_all(&std::slice::from_raw_parts(src as *const u8, byte_size))?;
                 glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             }
         }
-        send(IPCEvent::Frame);
     }
     drop(input);
     proc.wait()?;

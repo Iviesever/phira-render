@@ -72,6 +72,9 @@ export interface RenderConfig {
   speed: number;
   volumeMusic: number;
   volumeSfx: number;
+  showPlayer: boolean;
+  exportPreview?: boolean;
+  exportPath?: string | null;
 }
 
 export interface RPEChart {

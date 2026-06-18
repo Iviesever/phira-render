@@ -18,11 +18,12 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.4.0", features = [ "dialog-message", "system-tray", "shell-open", "fs-read-file", "protocol-asset", "dialog-open"] }
 
 anyhow = { version = "1.0.70", features = ["backtrace"] }
-macroquad = { git = "https://github.com/Mivik/prpr-macroquad", default-features = false }
-prpr = { git = "https://github.com/TeamFlos/phira", package = "prpr", branch = "render-lib" }
+macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "b2eab29", default-features = false }
+prpr = { git = "https://github.com/TeamFlos/phira", package = "prpr" }
+prpr_l10n = { git = "https://github.com/TeamFlos/phira", package = "prpr-l10n" }
 # prpr = { path = "../../phira/prpr" }
 
-sasa = { git = "https://github.com/Mivik/sasa" }
+sasa = { git = "https://github.com/Mivik/sasa", rev = "e76229b" }
 serde_yaml = "0.9"
 tokio = { version = "*", features = ["process"] }
 tracing = "0.1.37"

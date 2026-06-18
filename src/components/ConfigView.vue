@@ -21,6 +21,10 @@ en:
   bitrate: Bitrate
   bitrate-tips: A higher bitrate will result in higher quality and larger file size
 
+  export-path: Export Path
+  export-path-title: Choose Export Directory
+  export-path-tips: Custom video export path (folder or file path). If empty, default app directory will be used. Supports pasted path with quotes.
+
   player-avatar: Player Avatar
   player-name: Player Name
   player-rks: Player Rks.
@@ -51,6 +55,9 @@ en:
   volume-sfx: SFX Volume
 
   ending-length: Result Screen Duration
+
+  show-player: Show Player / Ending
+  show-player-tips: When off, player info is not needed and the ending score screen is skipped
 
   presets: Presets
   preset-refresh: Refresh
@@ -86,6 +93,10 @@ zh-CN:
   bitrate: 码率
   bitrate-tips: 码率越高，画面质量越高，文件大小也越大
 
+  export-path: 导出路径
+  export-path-title: 选择导出文件夹
+  export-path-tips: 自定义视频导出路径（文件夹或文件路径）。留空则使用默认。支持直接粘贴带双引号的路径。
+
   player-avatar: 玩家头像
   player-name: 玩家名
   player-rks: 玩家 RKS
@@ -117,6 +128,9 @@ zh-CN:
 
   ending-length: 结算画面时长
 
+  show-player: 显示玩家 / 结算
+  show-player-tips: 关闭后无需填写玩家信息，且视频末尾不会有结算画面
+
   presets: 预设配置
   preset-refresh: 刷新
   preset-create: 创建
@@ -132,7 +146,7 @@ zh-CN:
 </i18n>
 
 <script setup lang="ts">
-import { ref, h } from 'vue';
+import { ref, h, watch } from 'vue';
 
 import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
@@ -174,7 +188,27 @@ const resolution = ref('1920x1080'),
 
 const fxaa = ref(false),
   sampleCount = ref('4'),
-  bitrate = ref('7M');
+  bitrate = ref('7M'),
+  exportPath = ref<string | null>(null);
+
+watch(exportPath, (newVal) => {
+  if (newVal) {
+    let cleaned = newVal.trim().replace(/^['"]|['"]$/g, '').trim();
+    if (cleaned !== newVal) {
+      exportPath.value = cleaned;
+    }
+  }
+});
+
+async function chooseExportPath() {
+  let dir = await open({
+    directory: true,
+    title: t('export-path-title'),
+  });
+  if (dir) {
+    exportPath.value = dir as string;
+  }
+}
 
 const playerAvatar = ref<string>(),
   playerName = ref(''),
@@ -219,14 +253,23 @@ const respacks = ref([DEFAULT_RESPACK]);
 const respack = ref(DEFAULT_RESPACK);
 async function updateRespacks() {
   respacks.value = await getRespacks();
-  respack.value = respacks.value.find((x) => x.name === respack.value.name) || respacks.value[0];
+  // Try to restore the last selected respack from localStorage
+  const lastRespackPath = localStorage.getItem('lastRespackPath');
+  if (lastRespackPath) {
+    respack.value = respacks.value.find((x) => x.path === lastRespackPath) || respacks.value[0];
+  } else {
+    respack.value = respacks.value.find((x) => x.name === respack.value.name) || respacks.value[0];
+  }
 }
 updateRespacks();
+watch(respack, (val) => {
+  localStorage.setItem('lastRespackPath', val.path || '');
+});
 
 const noteScale = ref(1);
 
 const doubleHint = ref(true),
-  aggressive = ref(true),
+  aggressive = ref(false),
   disableParticle = ref(false),
   disableEffect = ref(false);
 
@@ -234,6 +277,8 @@ const volumeMusic = ref(1),
   volumeSfx = ref(1);
 
 const endingLength = ref('25.5');
+
+const showPlayer = ref(false);
 
 const STD_CHALLENGE_COLORS = ['white', 'green', 'blue', 'red', 'golden', 'rainbow'];
 
@@ -268,6 +313,8 @@ async function buildConfig(): Promise<RenderConfig | null> {
     speed: 1,
     volumeMusic: volumeMusic.value,
     volumeSfx: volumeSfx.value,
+    showPlayer: showPlayer.value,
+    exportPath: exportPath.value ? (exportPath.value.trim().length ? exportPath.value : null) : null,
   };
 }
 
@@ -313,6 +360,10 @@ function applyConfig(config: RenderConfig) {
   respack.value = respacks.value.find((x) => x.path === config.resPackPath) || respacks.value[0];
   volumeMusic.value = config.volumeMusic;
   volumeSfx.value = config.volumeSfx;
+  showPlayer.value = config.showPlayer ?? false;
+  exportPath.value = config.exportPath || null;
+  // Persist last respack selection
+  localStorage.setItem('lastRespackPath', respack.value.path || '');
 }
 
 const DEFAULT_CONFIG: RenderConfig = {
@@ -322,7 +373,7 @@ const DEFAULT_CONFIG: RenderConfig = {
   hardwareAccel: true,
   bitrate: '7M',
 
-  aggressive: true,
+  aggressive: false,
   challengeColor: 'golden',
   challengeRank: 45,
   disableEffect: false,
@@ -338,6 +389,8 @@ const DEFAULT_CONFIG: RenderConfig = {
   speed: 1,
   volumeMusic: 1,
   volumeSfx: 1,
+  showPlayer: false,
+  exportPath: null,
 };
 interface Preset {
   name: string;
@@ -463,9 +516,27 @@ async function replacePreset() {
           <TipSwitch :label="t('fxaa')" :tooltip="t('fxaa-tips')" v-model="fxaa"></TipSwitch>
         </v-col>
       </v-row>
+      <v-row no-gutters class="mx-n2 mt-1">
+        <v-col cols="12">
+          <TipTextField
+            :label="t('export-path')"
+            class="mx-2"
+            v-model="exportPath"
+            clearable
+            prepend-icon="mdi-folder-open"
+            @click:prepend="chooseExportPath"
+            :tooltip="t('export-path-tips')"
+          ></TipTextField>
+        </v-col>
+      </v-row>
     </div>
     <div class="mt-2">
-      <StickyLabel :title="t('title.player')"></StickyLabel>
+      <div class="mb-4 bg-surface d-flex align-center" style="position: sticky; top: 0; z-index: 2">
+        <h3 class="pa-1">{{ t('title.player') }}</h3>
+        <TipSwitch :label="t('show-player')" :tooltip="t('show-player-tips')" v-model="showPlayer" class="ml-4"></TipSwitch>
+      </div>
+      <v-divider class="mt-n4 mb-4"></v-divider>
+      <template v-if="showPlayer">
       <v-row no-gutters class="mx-n2">
         <v-col cols="4">
           <v-text-field
@@ -493,6 +564,7 @@ async function replacePreset() {
           <v-text-field class="mx-2" :label="t('challenge-rank')" :rules="[RULES.positiveInt]" type="number" v-model="challengeRank"></v-text-field>
         </v-col>
       </v-row>
+      </template>
     </div>
 
     <div class="mt-2">
