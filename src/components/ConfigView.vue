@@ -549,15 +549,12 @@ async function replacePreset() {
       <div class="grid-3">
         <div class="form-group">
           <label class="form-label">{{ t('resolution') }}</label>
-          <input
-            list="resolution-list"
-            class="form-input"
+          <CustomSelect
             v-model="resolution"
+            editable
+            :options="RESOLUTIONS"
             :placeholder="t('resolution')"
           />
-          <datalist id="resolution-list">
-            <option v-for="res in RESOLUTIONS" :key="res" :value="res"></option>
-          </datalist>
         </div>
 
         <div class="form-group">

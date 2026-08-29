@@ -12,11 +12,13 @@ const props = withDefaults(
     options: Array<OptionItem | string>;
     placeholder?: string;
     disabled?: boolean;
+    editable?: boolean;
     size?: 'sm' | 'md';
   }>(),
   {
     placeholder: '请选择',
     disabled: false,
+    editable: false,
     size: 'md',
   }
 );
@@ -54,6 +56,12 @@ function selectOption(opt: OptionItem) {
   isOpen.value = false;
 }
 
+function onInput(e: Event) {
+  const val = (e.target as HTMLInputElement).value;
+  emit('update:modelValue', val);
+  emit('change', val);
+}
+
 function handleClickOutside(e: MouseEvent) {
   if (selectRef.value && !selectRef.value.contains(e.target as Node)) {
     isOpen.value = false;
@@ -73,11 +81,24 @@ onUnmounted(() => {
   <div
     ref="selectRef"
     class="custom-select-wrap"
-    :class="{ 'is-open': isOpen, 'is-disabled': disabled, 'size-sm': size === 'sm' }"
+    :class="{ 'is-open': isOpen, 'is-disabled': disabled, 'size-sm': size === 'sm', 'is-editable': editable }"
   >
-    <div class="custom-select-trigger" @click="toggle">
-      <span class="selected-text">{{ currentLabel }}</span>
-      <i class="mdi mdi-chevron-down select-arrow"></i>
+    <div class="custom-select-trigger" @click="!editable ? toggle() : undefined">
+      <!-- Editable text input -->
+      <input
+        v-if="editable"
+        type="text"
+        class="custom-select-input"
+        :value="modelValue"
+        :placeholder="placeholder"
+        :disabled="disabled"
+        @input="onInput"
+        @focus="isOpen = true"
+      />
+      <!-- Read-only select trigger -->
+      <span v-else class="selected-text">{{ currentLabel }}</span>
+
+      <i class="mdi mdi-chevron-down select-arrow" @click.stop="toggle"></i>
     </div>
 
     <transition name="dropdown-fade">
@@ -141,6 +162,18 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+.custom-select-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+  padding: 0;
+}
+
 .selected-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -154,6 +187,8 @@ onUnmounted(() => {
   transition: transform 0.2s ease, color 0.2s ease;
   flex-shrink: 0;
   margin-left: 6px;
+  padding: 2px;
+  cursor: pointer;
 }
 
 .is-open .select-arrow {
