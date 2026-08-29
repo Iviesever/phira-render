@@ -83,8 +83,9 @@ pub fn build_conf() -> macroquad::window::Conf {
     enable_hidpi();
     macroquad::window::Conf {
         window_title: "Phira".to_string(),
-        window_width: 1080,
-        window_height: 608,
+        window_width: 1280,
+        window_height: 720,
+        window_resizable: true,
         high_dpi: false,
         headless: std::env::args().skip(1).next().as_deref() != Some("preview"),
         ..Default::default()
