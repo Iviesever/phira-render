@@ -163,6 +163,7 @@ import type { RenderConfig } from '../model';
 import TipSwitch from './TipSwitch.vue';
 import TipTextField from './TipTextField.vue';
 import CustomSlider from './CustomSlider.vue';
+import CustomSelect from './CustomSelect.vue';
 import TooltipIcon from './TooltipIcon.vue';
 
 const props = defineProps<{ initAspectRatio?: number }>();
@@ -511,16 +512,16 @@ async function replacePreset() {
     <div class="preset-bar">
       <div class="preset-left">
         <label class="form-label mb-0">{{ t('title.presets') }}:</label>
-        <select
-          class="form-select preset-select"
-          :value="preset.key"
-          @change="(e: any) => {
-            const found = presets.find(x => x.key === e.target.value);
+        <CustomSelect
+          class="preset-select"
+          size="sm"
+          :model-value="preset.key"
+          :options="presets.map(p => ({ label: p.name, value: p.key }))"
+          @change="(val: string) => {
+            const found = presets.find(x => x.key === val);
             if (found) { preset = found; applyConfig(found.config); }
           }"
-        >
-          <option v-for="p in presets" :key="p.key" :value="p.key">{{ p.name }}</option>
-        </select>
+        />
       </div>
       <div class="preset-actions">
         <button class="btn btn-secondary btn-sm" @click="updatePresets" :title="t('preset-refresh')">
@@ -621,16 +622,14 @@ async function replacePreset() {
       <div class="grid-2 align-end">
         <div class="form-group mb-0">
           <label class="form-label">{{ t('respack') }}</label>
-          <select
-            class="form-select"
-            :value="respack.name"
-            @change="(e: any) => {
-              const found = respacks.find(r => r.name === e.target.value);
+          <CustomSelect
+            :model-value="respack.name"
+            :options="respacks.map(r => ({ label: r.name, value: r.name }))"
+            @change="(val: string) => {
+              const found = respacks.find(r => r.name === val);
               if (found) respack = found;
             }"
-          >
-            <option v-for="r in respacks" :key="r.name" :value="r.name">{{ r.name }}</option>
-          </select>
+          />
         </div>
         <div class="d-flex gap-2 mb-0">
           <button class="btn btn-secondary" @click="updateRespacks">
@@ -741,9 +740,10 @@ async function replacePreset() {
         <div class="grid-2 mt-2">
           <div class="form-group">
             <label class="form-label">{{ t('challenge-color') }}</label>
-            <select class="form-select" v-model="challengeColor">
-              <option v-for="c in t('challenge-colors').split(',')" :key="c" :value="c">{{ c }}</option>
-            </select>
+            <CustomSelect
+              v-model="challengeColor"
+              :options="t('challenge-colors').split(',')"
+            />
           </div>
 
           <TipTextField
@@ -787,10 +787,7 @@ async function replacePreset() {
 }
 
 .preset-select {
-  width: 160px;
-  padding: 6px 12px;
-  padding-right: 28px;
-  font-size: 13px;
+  width: 170px;
 }
 
 .preset-actions {
