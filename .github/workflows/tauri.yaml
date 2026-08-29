@@ -40,12 +40,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libssl-dev pkg-config ffmpeg
 
-      - name: Setup FFmpeg (Windows only)
-        if: matrix.platform == 'windows-latest'
-        uses: FedericoCarboni/setup-ffmpeg@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
@@ -83,8 +77,9 @@ jobs:
           $pkgDir = "dist-windows"
           New-Item -ItemType Directory -Path $pkgDir -Force | Out-Null
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/phira-render.exe" "$pkgDir/phira-render.exe"
-          $ffmpegPath = (Get-Command ffmpeg).Source
-          Copy-Item $ffmpegPath "$pkgDir/ffmpeg.exe"
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "temp_ffmpeg" -Force
+          Copy-Item "temp_ffmpeg/ffmpeg.exe" "$pkgDir/ffmpeg.exe"
+          Remove-Item -Recurse -Force "temp_ffmpeg"
           Copy-Item -Recurse -Force "src-tauri/assets" "$pkgDir/assets"
           Copy-Item "README.md" "$pkgDir/README.md"
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "${{ matrix.artifact }}" -Force
