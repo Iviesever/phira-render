@@ -1,46 +1,49 @@
-# phira-render (Iviesever的增强分支)
+# Phira Render
 
-> **注:** 这是一个基于 TeamFlos 开发的原版 [phira-render](https://github.com/TeamFlos/phira-render) 的修改版。所有原始版权归原作者所有。本分支包含了一些专为高级使用场景量身定制的工作流和渲染行为改进。
+高性能、轻量级的 Phira / Phigros 谱面离线视频渲染与练习预览工具。基于 Tauri + Vue 3 + Rust 构建。
 
-一个帮助您渲染 Phigros 谱面的实用工具。基于 Tauri + Vuetify 构建。
+---
 
-## Iviesever 的改进与区别
+## 主要特性
 
-- **1:1 原生导出预览**: 新增“导出预览”功能，确保渲染出的视频与实时预览完全一致。它通过自动获取物理显示器的原生刷新率（例如 240Hz，且能精准绕过远程桌面虚拟适配器的干扰）并采用高质量的 CRF 编码 (`-crf 18`) 来实现所见即所得。
-- **自定义导出路径**: 您现在可以在参数配置界面直接定义自定义导出文件夹或具体的文件路径。
-- **支持快速粘贴路径**: 完美支持直接从 Windows 资源管理器粘贴带引号的路径 (`Ctrl+Shift+C`)，程序会自动去除两端的双引号，让操作更加顺畅。
-- **预设记忆功能**: 自定义的导出路径已完全集成到预设配置系统中，重启应用后依然能够记忆并恢复您的配置。
-- **默认开启硬件加速**: 默认开启硬件加速选项，优先利用 NVENC/QSV 大幅提升渲染效率。
+- **高性能渲染**：采用 Rust 与 FFmpeg 硬件加速（NVENC / QSV），音画合成极速高效。
+- **1:1 导出预览**：自动获取物理显示器刷新率（如 144Hz / 240Hz），采用高质量 CRF 编码导出与游戏内完全一致的高帧率预览视频。
+- **游戏内练习模式**：内置原生时间轴交互，支持点击字符就地编辑时间、左右方向键导航与毫秒级精准跳转。
+- **高分屏点对点渲染**：原生支持 Windows Per-Monitor V2 High-DPI，界面在各类缩放下保持清晰锐利。
+- **参数预设与路径记忆**：支持多套渲染配置预设保存、覆盖与删除，自定义导出路径自动记忆。
+- **RPE 谱面互通**：支持一键绑定 RPE 游戏目录，自动扫描并直接发起渲染。
 
-## 原始特性
+---
 
-- 现代美观的 UI 界面；
-- 渲染速度极快（与 prpr-render 相比提升了 3-4 倍）；
-- 只需几次点击即可绑定 RPE；
-- 任务列表管理；
-- 添加和管理多个参数预设；
-- ...
+## 构建与运行
 
-## 截图展示
+### 环境准备
 
-![Render Options](arts/render-options.png)
+1. **Node.js** (v18+)
+2. **Rust** (1.70+)
+3. **FFmpeg**（放置于系统 PATH 或应用所在目录）
 
-![Task List](arts/task-list.png)
+### 一键构建 (Windows)
 
-## 安装方法
+直接双击运行根目录下的脚本即可完成前端打包与 Release 二进制编译：
 
-请查看 [Releases](https://github.com/TeamFlos/phira-render/releases) 页面。
+```cmd
+build.bat
+```
 
-## 手动构建
+编译产物将输出至 `src-tauri/target/release/phira-render.exe`。
 
-开发环境
+### 开发调试
 
 ```bash
+# 启动前端开发服务器与 Tauri 调试窗口
+npm run dev
 cargo tauri dev
 ```
 
-构建
+---
 
-```bash
-cargo tauri build
-```
+## 开源协议
+
+本项目基于 Apache 2.0 / GPLv3 协议开源。
+原版项目版权归 [TeamFlos/phira-render](https://github.com/TeamFlos/phira-render) 所有。
