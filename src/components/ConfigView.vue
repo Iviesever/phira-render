@@ -189,14 +189,22 @@ const resolution = ref('1920x1080'),
 const fxaa = ref(false),
   sampleCount = ref('4'),
   bitrate = ref('7M'),
-  exportPath = ref<string | null>(null);
+  exportPath = ref<string | null>(localStorage.getItem('lastExportPath') || null);
 
 watch(exportPath, (newVal) => {
   if (newVal) {
     let cleaned = newVal.trim().replace(/^['"]|['"]$/g, '').trim();
     if (cleaned !== newVal) {
       exportPath.value = cleaned;
+      return;
     }
+    if (cleaned.length > 0) {
+      localStorage.setItem('lastExportPath', cleaned);
+    } else {
+      localStorage.removeItem('lastExportPath');
+    }
+  } else {
+    localStorage.removeItem('lastExportPath');
   }
 });
 
@@ -204,6 +212,7 @@ async function chooseExportPath() {
   let dir = await open({
     directory: true,
     title: t('export-path-title'),
+    defaultPath: exportPath.value || undefined,
   });
   if (dir) {
     exportPath.value = dir as string;
@@ -361,7 +370,7 @@ function applyConfig(config: RenderConfig) {
   volumeMusic.value = config.volumeMusic;
   volumeSfx.value = config.volumeSfx;
   showPlayer.value = config.showPlayer ?? false;
-  exportPath.value = config.exportPath || null;
+  exportPath.value = config.exportPath || localStorage.getItem('lastExportPath') || null;
   // Persist last respack selection
   localStorage.setItem('lastRespackPath', respack.value.path || '');
 }
