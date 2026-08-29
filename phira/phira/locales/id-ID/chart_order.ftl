@@ -1,0 +1,2 @@
+time = Waktu
+name = Nama
