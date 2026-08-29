@@ -788,7 +788,8 @@ async function replacePreset() {
 
 .preset-select {
   width: 160px;
-  padding: 6px 10px;
+  padding: 6px 12px;
+  padding-right: 28px;
   font-size: 13px;
 }
 

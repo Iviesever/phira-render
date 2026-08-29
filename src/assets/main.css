@@ -167,12 +167,33 @@ input, textarea, select, button {
 
 .form-select {
   appearance: none;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 8px 12px;
+  padding-right: 32px;
+  border-radius: var(--radius-sm);
+  outline: none;
+  font-size: 13px;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2394a3b8'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 18px;
-  padding-right: 28px;
   cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+  width: 100%;
+}
+
+.form-select:focus {
+  border-color: var(--border-focus);
+  background-color: var(--bg-input-focus);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.form-select option {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  padding: 6px;
 }
 
 /* Buttons */
