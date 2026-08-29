@@ -1,29 +1,30 @@
 <i18n>
 en:
-  not-binded: You have not binded RPE yet
-  bind: Bind RPE
+  not-binded: You have not binded RPE folder yet
+  not-binded-sub: Select your RPE install directory to load and render RPE charts.
+  bind: Bind RPE Folder
   binded: Binded successfully
   unbind: Unbind RPE
   unbinded: Unbinded successfully
   rpe-folder: Please select RPE's folder
 
-  render: Render
+  render: Render Chart
 
 zh-CN:
-  not-binded: 你还没有绑定 RPE
-  bind: 绑定 RPE
+  not-binded: 尚未绑定 RPE 目录
+  not-binded-sub: 绑定 RPE 游戏目录后，可直接在此处浏览并一键渲染已安装的 RPE 谱面。
+  bind: 绑定 RPE 目录
   binded: 绑定成功
-  unbind: 解绑 RPE
+  unbind: 解除绑定
   unbinded: 解绑成功
   rpe-folder: 请选择 RPE 所在文件夹
 
-  render: 渲染
+  render: 渲染谱面
 
 </i18n>
 
 <script setup lang="ts">
 import { ref } from 'vue';
-
 import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 
@@ -63,35 +64,113 @@ async function unbindRPE() {
 </script>
 
 <template>
-  <div class="pa-8 w-100 h-100 d-flex flex-column" style="max-width: 1280px; gap: 1rem">
-    <template v-if="!charts">
-      <h1 class="text-center font-italic text-disabled" v-t="'not-binded'"></h1>
-      <div class="d-flex justify-center">
-        <v-btn size="large" class="italic mt-2" @click="bindRPE" style="width: fit-content" v-t="'bind'"></v-btn>
-      </div>
-    </template>
-    <template v-if="charts">
-      <div class="d-flex justify-center mb-4">
-        <v-btn size="large" class="italic" @click="unbindRPE" style="width: fit-content" v-t="'unbind'"></v-btn>
-      </div>
-      <v-card v-for="chart in charts" :key="chart.id">
-        <div class="d-flex flex-row align-stretch">
-          <div class="d-flex flex-row align-center" style="width: 35%">
-            <div
-              style="width: 100%; height: 100%; max-height: 240px; background-position: center; background-repeat: no-repeat; background-size: cover"
-              :style="{ 'background-image': 'url(' + convertFileSrc(chart.illustration) + ')' }"></div>
-          </div>
-          <div class="d-flex flex-column w-100">
-            <v-card-title>{{ chart.name }}</v-card-title>
-            <v-card-subtitle class="mt-n2">{{ chart.id }}</v-card-subtitle>
-            <div class="w-100 pa-4 mt-2">
-              <div class="pt-4 d-flex justify-end">
-                <v-btn color="primary" @click="router.push({ name: 'render', query: { chart: chart.path } })" v-t="'render'"></v-btn>
-              </div>
-            </div>
+  <div class="page-wrapper">
+    <div class="d-flex justify-between align-center mb-2">
+      <h2>RPE</h2>
+      <button v-if="charts" class="btn btn-secondary btn-sm" @click="unbindRPE">
+        <i class="mdi mdi-link-off"></i> {{ t('unbind') }}
+      </button>
+    </div>
+
+    <!-- Unbound State -->
+    <div v-if="!charts" class="clean-card text-center py-16">
+      <i class="mdi mdi-bookshelf empty-icon"></i>
+      <h3 class="mt-4">{{ t('not-binded') }}</h3>
+      <p class="text-muted mt-1 mb-6">{{ t('not-binded-sub') }}</p>
+      <button class="btn btn-primary btn-lg" @click="bindRPE">
+        <i class="mdi mdi-folder-open-outline"></i>
+        <span>{{ t('bind') }}</span>
+      </button>
+    </div>
+
+    <!-- Bound Charts List -->
+    <div v-else class="charts-grid">
+      <div v-for="chart in charts" :key="chart.id" class="clean-card chart-card">
+        <div
+          class="chart-cover"
+          :style="{ 'background-image': 'url(' + convertFileSrc(chart.illustration) + ')' }"
+        ></div>
+        <div class="chart-info">
+          <h3 class="chart-name">{{ chart.name }}</h3>
+          <p class="chart-id">{{ chart.id }}</p>
+          <div class="chart-actions">
+            <button
+              class="btn btn-primary btn-sm"
+              @click="router.push({ name: 'render', query: { chart: chart.path } })"
+            >
+              <i class="mdi mdi-auto-fix"></i> {{ t('render') }}
+            </button>
           </div>
         </div>
-      </v-card>
-    </template>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.empty-icon {
+  font-size: 56px;
+  color: var(--text-sub);
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.chart-card {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.chart-cover {
+  width: 120px;
+  min-height: 100px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-color: #12151c;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
+}
+
+.chart-info {
+  flex: 1;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.chart-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.3;
+}
+
+.chart-id {
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
+.chart-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.d-flex { display: flex; }
+.justify-between { justify-content: space-between; }
+.align-center { align-items: center; }
+.mt-1 { margin-top: 4px; }
+.mt-4 { margin-top: 16px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-6 { margin-bottom: 24px; }
+.py-16 { padding-top: 64px; padding-bottom: 64px; }
+.text-center { text-align: center; }
+.text-muted { color: var(--text-muted); }
+</style>

@@ -1,11 +1,18 @@
-import { toast as sonnerToast } from 'vuetify-sonner';
-
+import { ref } from 'vue';
 import { SUPPORTED_LOCALES, i18n } from './main';
-
 import moment from 'moment';
 
 import 'moment/dist/locale/zh-cn';
 import 'moment/dist/locale/zh-hk';
+
+export interface ToastItem {
+  id: number;
+  message: string;
+  kind: 'success' | 'info' | 'warning' | 'error';
+}
+
+export const activeToasts = ref<ToastItem[]>([]);
+let toastId = 0;
 
 export function anyFilter() {
   return {
@@ -19,7 +26,7 @@ export function isString(s: unknown): s is string {
 }
 
 export const RULES = {
-  non_empty: (value: string) => value.trim().length > 0 || i18n.global.t('rules.non-empty'),
+  non_empty: (value: string) => value?.trim().length > 0 || i18n.global.t('rules.non-empty'),
   positive: (value: string) => (isNumeric(value) && Number(value) > 0) || i18n.global.t('rules.positive'),
   positiveInt: (value: string) => (isNumeric(value) && Math.abs(Number(value) - Math.round(Number(value))) < 1e-4 && Number(value) > 0) || i18n.global.t('rules.positive-int'),
 };
@@ -46,15 +53,12 @@ export function changeLocale(locale: string) {
   moment.locale(momentLocale);
 }
 
-export function toast(message: string, kind?: 'success' | 'info' | 'warning' | 'error') {
-  sonnerToast(message, {
-    duration: 2000,
-    cardProps: {
-      color: kind,
-      // @ts-ignore
-      style: 'width: var(--width)',
-    },
-  });
+export function toast(message: string, kind: 'success' | 'info' | 'warning' | 'error' = 'info') {
+  const id = ++toastId;
+  activeToasts.value.push({ id, message, kind });
+  setTimeout(() => {
+    activeToasts.value = activeToasts.value.filter((t) => t.id !== id);
+  }, 2500);
 }
 
 export function toastError(error: any) {

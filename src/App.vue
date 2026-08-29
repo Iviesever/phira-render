@@ -16,10 +16,8 @@ zh-CN:
 <script lang="ts">
 import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-
 import { useI18n } from 'vue-i18n';
-
-import { VSonner } from 'vuetify-sonner';
+import { activeToasts } from './common';
 
 const onLoaded = ref<() => void>();
 const component = ref();
@@ -47,12 +45,12 @@ const { t } = useI18n();
 const route = useRoute(),
   router = useRouter();
 
-const icons = {
-  render: 'mdi-auto-fix',
-  rpe: 'mdi-bookshelf',
-  tasks: 'mdi-server',
-  about: 'mdi-information-outline',
-};
+const navItems = [
+  { key: 'render', icon: 'mdi-auto-fix' },
+  { key: 'rpe', icon: 'mdi-bookshelf' },
+  { key: 'tasks', icon: 'mdi-server' },
+  { key: 'about', icon: 'mdi-information-outline' },
+];
 
 window.goto = (name: string) => {
   router.push({ name });
@@ -60,34 +58,175 @@ window.goto = (name: string) => {
 </script>
 
 <template>
-  <v-app id="phira-render">
-    <v-sonner position="top-center" />
-    <v-app-bar title="phira-render"></v-app-bar>
-    <v-navigation-drawer expand-on-hover rail permanent>
-      <v-list density="compact" nav>
-        <v-list-item
-          v-for="key in ['render', 'rpe', 'tasks', 'about']"
-          :active="route.name === key"
-          :key="key"
-          :prepend-icon="icons[key as keyof typeof icons]"
-          :title="t(key)"
-          @click="router.push({ name: key })"></v-list-item>
-      </v-list>
-    </v-navigation-drawer>
+  <div class="app-container">
+    <!-- Toast notifications -->
+    <div class="toast-container">
+      <div
+        v-for="toast in activeToasts"
+        :key="toast.id"
+        class="toast-item"
+        :class="'toast-' + toast.kind"
+      >
+        <i
+          class="mdi"
+          :class="{
+            'mdi-check-circle': toast.kind === 'success',
+            'mdi-alert-circle': toast.kind === 'error',
+            'mdi-alert': toast.kind === 'warning',
+            'mdi-information': toast.kind === 'info',
+          }"
+        ></i>
+        <span>{{ toast.message }}</span>
+      </div>
+    </div>
 
-    <v-main class="d-flex justify-center">
+    <!-- Left Clean Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">
+          <i class="mdi mdi-play-circle-outline"></i>
+        </div>
+        <div class="brand-title">Phira Render</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button
+          v-for="item in navItems"
+          :key="item.key"
+          class="nav-item"
+          :class="{ 'nav-item-active': route.name === item.key }"
+          @click="router.push({ name: item.key })"
+        >
+          <i class="mdi" :class="item.icon"></i>
+          <span class="nav-label">{{ t(item.key) }}</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="footer-tag">v0.1.0</span>
+      </div>
+    </aside>
+
+    <!-- Main Views Area -->
+    <main class="main-content">
       <router-view v-slot="{ Component }">
         <Suspense timeout="0">
           <template #default>
             <component :is="Component" ref="component" />
           </template>
           <template #fallback>
-            <div class="flex justify-center pa-8">
-              <v-progress-circular indeterminate size="large" />
+            <div class="loading-state">
+              <i class="mdi mdi-loading mdi-spin"></i>
+              <span>加载中...</span>
             </div>
           </template>
         </Suspense>
       </router-view>
-    </v-main>
-  </v-app>
+    </main>
+  </div>
 </template>
+
+<style scoped>
+.sidebar {
+  width: 200px;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.sidebar-brand {
+  padding: 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.brand-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.nav-item i {
+  font-size: 18px;
+}
+
+.nav-item:hover {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+}
+
+.nav-item-active {
+  background-color: var(--primary-light) !important;
+  color: var(--primary) !important;
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.footer-tag {
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.loading-state i {
+  font-size: 32px;
+  color: var(--primary);
+}
+</style>

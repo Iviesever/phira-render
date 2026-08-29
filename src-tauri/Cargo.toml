@@ -43,4 +43,5 @@ opt-level = 2
 opt-level = 2
 
 [patch.'https://github.com/TeamFlos/phira']
-prpr = { path = "../.cargo/git/checkouts/phira-09eadbc827037862/15903cd/prpr" }
+prpr = { path = "../phira/prpr" }
+prpr-l10n = { path = "../phira/prpr-l10n" }

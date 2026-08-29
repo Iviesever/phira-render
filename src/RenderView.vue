@@ -5,25 +5,27 @@ en:
   prev-step: Previous
   next-step: Next
   steps:
-    choose: 'Choose the chart'
-    config: 'Configure chart'
-    options: 'Render options'
-    render: 'Render'
+    choose: '1. Choose Chart'
+    config: '2. Chart Info'
+    options: '3. Render Options'
+    render: '4. Render'
 
   choose:
     archive: Archive (.zip, .pez)
     folder: Folder
-    can-also-drop: You can also drag & drop the file to here
-    drop: DROP CHART HERE
+    can-also-drop: You can also drag & drop the chart file into this window
+    drop: Drop Chart File Here
+    filter-name: Chart Archive
 
   chart-file: Chart file
 
-  chart-name: Chart name
+  chart-name: Chart Name
   charter: Charter
+  composer: Composer
   illustrator: Illustrator
   level: Level
-  aspect: Aspect ratio
-  dim: Background dim
+  aspect: Aspect Ratio
+  dim: Background Dim
 
   tip: Tip
   tip-placeholder: Leave empty to choose randomly
@@ -38,12 +40,12 @@ en:
     illustration: Illustration (empty for default)
 
   preview: Preview
-  render: Render
+  render: Start Render
   export-preview: Export Preview
   export-preview-tips: Export using preview-identical settings (monitor refresh rate, high quality CRF encoding), ignoring configured FPS and bitrate
 
   render-started: Rendering has started!
-  see-tasks: See tasks
+  see-tasks: View Task Queue
 
   ffmpeg-not-found: You haven't installed ffmpeg yet. Please download FFmpeg.exe and put it in the specific folder.
 
@@ -53,16 +55,17 @@ zh-CN:
   prev-step: 上一步
   next-step: 下一步
   steps:
-    choose: '选择谱面'
-    config: '配置谱面'
-    options: '渲染参数'
-    render: '渲染视频'
+    choose: '1. 选择谱面'
+    config: '2. 谱面信息'
+    options: '3. 渲染配置'
+    render: '4. 渲染任务'
 
   choose:
     archive: 压缩包 (.zip, .pez)
     folder: 文件夹
-    can-also-drop: 也可以直接拖放谱面至此处
-    drop: 拖放谱面至此处
+    can-also-drop: 也可以直接拖放谱面文件或文件夹至窗口内
+    drop: 释放鼠标以导入谱面
+    filter-name: 谱面压缩包
 
   chart-file: 谱面文件
 
@@ -72,20 +75,20 @@ zh-CN:
   illustrator: 画师
   level: 难度
   aspect: 宽高比
-  dim: 背景昏暗程度
+  dim: 背景昏暗度
 
-  tip: Tip
+  tip: Tip 提示
   tip-placeholder: 留空则随机选择
 
   width: 宽
   height: 高
 
-  preview: 预览
-  render: 渲染
+  preview: 谱面预览
+  render: 开始渲染
   export-preview: 导出预览
   export-preview-tips: 以预览一致的行为导出（自动检测显示器刷新率作为帧率、CRF 高画质编码），忽略界面上设置的帧数和码率
 
-  render-started: 视频已开始渲染！
+  render-started: 视频已加入渲染任务队列！
   see-tasks: 查看任务列表
 
   ffmpeg-not-found: 您尚未安装 FFmpeg。请下载 FFmpeg.exe 并放置在指定文件夹内。
@@ -95,20 +98,18 @@ zh-CN:
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-
 import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 
 import { invoke, event, dialog, shell } from '@tauri-apps/api';
+import { convertFileSrc } from '@tauri-apps/api/tauri';
 
 import { toastError, RULES, toast, anyFilter, isString } from './common';
 import type { ChartInfo } from './model';
 
-import { VForm } from 'vuetify/components';
-
 import ConfigView from './components/ConfigView.vue';
-
-import moment from 'moment';
+import TipTextField from './components/TipTextField.vue';
+import CustomSlider from './components/CustomSlider.vue';
 
 if (!(await invoke('is_the_only_instance'))) {
   await dialog.message(t('already-running'));
@@ -122,11 +123,11 @@ const stepIndex = ref(1),
   step = computed(() => steps[stepIndex.value - 1]);
 
 const chartInfo = ref<ChartInfo>();
-
 let chartPath = '';
 
 const choosingChart = ref(false),
   parsingChart = ref(false);
+
 async function chooseChart(folder?: boolean) {
   if (choosingChart.value) return;
   choosingChart.value = true;
@@ -141,19 +142,18 @@ async function chooseChart(folder?: boolean) {
           anyFilter(),
         ],
       });
+  choosingChart.value = false;
   if (!file) return;
 
-  // noexcept
   await loadChart(file as string);
-
-  choosingChart.value = false;
 }
+
 async function loadChart(file: string) {
   try {
     parsingChart.value = true;
     chartPath = file;
     chartInfo.value = (await invoke('parse_chart', { path: file })) as ChartInfo;
-    stepIndex.value++;
+    stepIndex.value = 2;
     aspectWidth.value = String(chartInfo.value.aspectRatio);
     aspectHeight.value = '1.0';
     for (let asp of [
@@ -175,8 +175,8 @@ async function loadChart(file: string) {
   }
 }
 
-const aspectWidth = ref('0'),
-  aspectHeight = ref('0');
+const aspectWidth = ref('16'),
+  aspectHeight = ref('9');
 
 const fileHovering = ref(false);
 event.listen('tauri://file-drop-hover', (_event) => (fileHovering.value = step.value === 'choose'));
@@ -188,11 +188,11 @@ event.listen('tauri://file-drop', async (event) => {
   }
 });
 
-const form = ref<VForm>();
+const configView = ref<InstanceType<typeof ConfigView>>();
 
-const configView = ref<typeof ConfigView>();
 async function buildParams() {
-  let config = await configView.value!.buildConfig();
+  if (!configView.value) return null;
+  let config = await configView.value.buildConfig();
   if (!config) return null;
   if (!chartInfo.value!.tip?.trim().length) chartInfo.value!.tip = null;
   return {
@@ -242,11 +242,10 @@ async function exportPreview() {
     }
     let params = await buildParams();
     if (!params) return false;
-    // Query the monitor's actual refresh rate to match preview behavior exactly
     const monitorFps = (await invoke('get_refresh_rate')) as number;
     params.config.fps = monitorFps;
-    params.config.bitrate = '0';  // CRF mode: high quality encoding
-    params.config.exportPreview = true;  // Use preview-identical scene structure
+    params.config.bitrate = '0';
+    params.config.exportPreview = true;
     await invoke('post_render', { params });
     return true;
   } catch (e) {
@@ -255,38 +254,33 @@ async function exportPreview() {
   }
 }
 
-const renderMsg = ref(''),
-  renderProgress = ref<number>(),
-  renderDuration = ref<number>();
-event.listen('render-msg', (msg) => (renderMsg.value = msg.payload as string));
-event.listen('render-progress', (msg) => {
-  let payload = msg.payload as { progress: number; fps: number; estimate: number };
-  renderMsg.value = t('render-status', {
-    progress: (payload.progress * 100).toFixed(2),
-    fps: payload.fps,
-    estimate: moment.duration(payload.estimate, 'seconds').humanize(true, { ss: 1 }),
-  });
-  renderProgress.value = payload.progress * 100;
-  console.log(renderProgress.value);
-});
-event.listen('render-done', (msg) => {
-  stepIndex.value++;
-  renderDuration.value = Math.round(msg.payload as number);
-});
+function validateChartInfo(): boolean {
+  if (!chartInfo.value?.name?.trim()) {
+    toast('谱面名不能为空', 'error');
+    return false;
+  }
+  if (!chartInfo.value?.level?.trim()) {
+    toast('难度不能为空', 'error');
+    return false;
+  }
+  if (!chartInfo.value?.charter?.trim()) {
+    toast('谱师不能为空', 'error');
+    return false;
+  }
+  return true;
+}
 
 async function moveNext() {
   if (step.value === 'config') {
-    if ((await form.value!.validate()).valid) {
-      stepIndex.value++;
-      configView.value!.onEnter();
-    } else {
-      toast(t('has-error'), 'error');
+    if (validateChartInfo()) {
+      stepIndex.value = 3;
+      if (configView.value) configView.value.onEnter();
     }
     return;
   }
   if (step.value === 'options') {
     if (await postRender()) {
-      stepIndex.value++;
+      stepIndex.value = 4;
     }
     return;
   }
@@ -310,101 +304,288 @@ function tryParseAspect(): number | undefined {
 </script>
 
 <template>
-  <div class="pa-8 w-100 h-100" style="max-width: 1280px">
-    <v-stepper alt-labels v-model="stepIndex" hide-actions :items="steps.map((x) => t('steps.' + x))">
-      <div v-if="step === 'config' || step === 'options'" class="d-flex flex-row pa-6 pb-4 pt-0">
-        <v-btn variant="text" @click="stepIndex && stepIndex--" v-t="'prev-step'"></v-btn>
-        <div class="flex-grow-1"></div>
-        <v-btn v-if="step === 'options'" variant="tonal" @click="previewChart" class="mr-2" v-t="'preview'"></v-btn>
-        <v-btn v-if="step === 'options'" variant="tonal" color="success" @click="exportPreview().then(ok => ok && stepIndex++)" class="mr-2"><v-tooltip activator="parent" location="bottom">{{ t('export-preview-tips') }}</v-tooltip>{{ t('export-preview') }}</v-btn>
-        <v-btn variant="tonal" @click="moveNext">{{ step === 'options' ? t('render') : t('next-step') }}</v-btn>
+  <div class="page-wrapper">
+    <!-- Clean Step Indicator Header -->
+    <div class="steps-nav">
+      <div
+        v-for="(s, idx) in steps"
+        :key="s"
+        class="step-nav-item"
+        :class="{
+          'step-active': stepIndex === idx + 1,
+          'step-done': stepIndex > idx + 1,
+        }"
+      >
+        <div class="step-num">{{ idx + 1 }}</div>
+        <div class="step-title">{{ t('steps.' + s) }}</div>
+      </div>
+    </div>
+
+    <!-- Action Bar (for config & options steps) -->
+    <div v-if="step === 'config' || step === 'options'" class="action-bar">
+      <button class="btn btn-secondary" @click="stepIndex--">
+        <i class="mdi mdi-arrow-left"></i> {{ t('prev-step') }}
+      </button>
+      <div class="flex-1"></div>
+      <template v-if="step === 'options'">
+        <button class="btn btn-secondary" @click="previewChart">
+          <i class="mdi mdi-play-circle-outline"></i> {{ t('preview') }}
+        </button>
+        <button
+          class="btn btn-secondary"
+          @click="exportPreview().then(ok => ok && (stepIndex = 4))"
+          :title="t('export-preview-tips')"
+        >
+          <i class="mdi mdi-video-check-outline text-success"></i> {{ t('export-preview') }}
+        </button>
+      </template>
+      <button class="btn btn-primary" @click="moveNext">
+        <span>{{ step === 'options' ? t('render') : t('next-step') }}</span>
+        <i class="mdi" :class="step === 'options' ? 'mdi-filmstrip' : 'mdi-arrow-right'"></i>
+      </button>
+    </div>
+
+    <!-- Step 1: Choose chart -->
+    <div v-if="step === 'choose'" class="clean-card choose-card">
+      <div
+        class="drop-zone"
+        :class="{ 'drop-zone-hover': fileHovering }"
+      >
+        <i class="mdi mdi-cloud-upload-outline drop-icon"></i>
+        <h3>{{ fileHovering ? t('choose.drop') : t('choose.can-also-drop') }}</h3>
+        <p class="drop-hint">支持 Phira 谱面压缩包 (.zip, .pez) 以及未解包文件夹</p>
+        
+        <div class="d-flex gap-4 mt-6">
+          <button class="btn btn-primary btn-lg" @click="chooseChart(false)">
+            <i class="mdi mdi-folder-zip-outline"></i>
+            <span>{{ t('choose.archive') }}</span>
+          </button>
+          <button class="btn btn-secondary btn-lg" @click="chooseChart(true)">
+            <i class="mdi mdi-folder-outline"></i>
+            <span>{{ t('choose.folder') }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Chart Info -->
+    <div v-if="step === 'config' && chartInfo" class="clean-card">
+      <div class="card-title">
+        <i class="mdi mdi-information-outline text-primary"></i>
+        <span>{{ t('steps.config') }}</span>
       </div>
 
-      <template v-slot:item.1>
-        <div class="mt-8 d-flex" style="gap: 1rem">
-          <div class="flex-grow-1 d-flex align-center justify-center w-0 py-8">
-            <v-btn class="w-75" style="overflow: hidden" size="large" color="primary" @click="chooseChart(false)" prepend-icon="mdi-folder-zip">{{ t('choose.archive') }}</v-btn>
-          </div>
-          <v-divider vertical></v-divider>
-          <div class="flex-grow-1 d-flex align-center justify-center w-0">
-            <v-btn class="w-75" size="large" color="primary" @click="chooseChart(true)" prepend-icon="mdi-folder">{{ t('choose.folder') }}</v-btn>
+      <div class="grid-2">
+        <TipTextField
+          :label="t('chart-name')"
+          :rules="[RULES.non_empty]"
+          v-model="chartInfo.name"
+        />
+        <TipTextField
+          :label="t('level')"
+          :rules="[RULES.non_empty]"
+          v-model="chartInfo.level"
+        />
+      </div>
+
+      <div class="grid-3 mt-4">
+        <TipTextField
+          :label="t('charter')"
+          :rules="[RULES.non_empty]"
+          v-model="chartInfo.charter"
+        />
+        <TipTextField
+          :label="t('composer')"
+          v-model="chartInfo.composer"
+        />
+        <TipTextField
+          :label="t('illustrator')"
+          v-model="chartInfo.illustrator"
+        />
+      </div>
+
+      <div class="grid-2 mt-4 align-center">
+        <div class="form-group mb-0">
+          <label class="form-label">{{ t('aspect') }}</label>
+          <div class="d-flex align-center gap-2">
+            <input type="number" class="form-input" v-model="aspectWidth" placeholder="16" />
+            <span>:</span>
+            <input type="number" class="form-input" v-model="aspectHeight" placeholder="9" />
           </div>
         </div>
-        <p class="mb-8 w-100 text-center mt-2 text-disabled" v-t="'choose.can-also-drop'"></p>
-        <v-overlay v-model="parsingChart" contained class="align-center justify-center" persistent :close-on-content-click="false">
-          <v-progress-circular indeterminate> </v-progress-circular>
-        </v-overlay>
-      </template>
 
-      <template v-slot:item.2>
-        <v-form ref="form" v-if="chartInfo">
-          <v-row no-gutters class="mx-n2">
-            <v-col cols="8">
-              <v-text-field class="mx-2" :label="t('chart-name')" :rules="[RULES.non_empty]" v-model="chartInfo.name"></v-text-field>
-            </v-col>
-            <v-col cols="4">
-              <v-text-field class="mx-2" :label="t('level')" :rules="[RULES.non_empty]" v-model="chartInfo.level"></v-text-field>
-            </v-col>
-          </v-row>
+        <CustomSlider
+          :label="t('dim')"
+          :min="0"
+          :max="1"
+          :step="0.05"
+          v-model="chartInfo.backgroundDim"
+          :format-value="(v) => Math.round(v * 100) + '%'"
+        />
+      </div>
 
-          <v-row no-gutters class="mx-n2 mt-1">
-            <v-col cols="12" sm="4">
-              <v-text-field class="mx-2" :label="t('charter')" :rules="[RULES.non_empty]" v-model="chartInfo.charter"></v-text-field>
-            </v-col>
-            <v-col cols="12" sm="4">
-              <v-text-field class="mx-2" :label="t('composer')" v-model="chartInfo.composer"></v-text-field>
-            </v-col>
-            <v-col cols="12" sm="4">
-              <v-text-field class="mx-2" :label="t('illustrator')" v-model="chartInfo.illustrator"></v-text-field>
-            </v-col>
-          </v-row>
+      <div class="mt-4">
+        <TipTextField
+          :label="t('tip')"
+          :placeholder="t('tip-placeholder')"
+          v-model="chartInfo.tip"
+        />
+      </div>
+    </div>
 
-          <v-row no-gutters class="mx-n2 mt-1 align-center">
-            <v-col cols="4">
-              <div class="mx-2 d-flex flex-column">
-                <p class="text-caption" v-t="'aspect'"></p>
-                <div class="d-flex flex-row align-center justify-center">
-                  <v-text-field type="number" class="mr-2" :rules="[RULES.positive]" :label="t('width')" v-model="aspectWidth"></v-text-field>
-                  <p>:</p>
-                  <v-text-field type="number" class="ml-2" :rules="[RULES.positive]" :label="t('height')" v-model="aspectHeight"></v-text-field>
-                </div>
-              </div>
-            </v-col>
-            <v-col cols="8" class="px-6">
-              <v-slider :label="t('dim')" thumb-label="always" :min="0" :max="1" :step="0.05" v-model="chartInfo.backgroundDim"></v-slider>
-            </v-col>
-          </v-row>
+    <!-- Step 3: Render Options -->
+    <div v-if="step === 'options'">
+      <ConfigView ref="configView" :init-aspect-ratio="tryParseAspect()" />
+    </div>
 
-          <v-row no-gutters class="mx-n2 mt-1">
-            <v-col cols="12">
-              <v-text-field class="mx-2" :label="t('tip')" :placeholder="t('tip-placeholder')" v-model="chartInfo.tip"></v-text-field>
-            </v-col>
-          </v-row>
-        </v-form>
-      </template>
+    <!-- Step 4: Finished / Render Started -->
+    <div v-if="step === 'render'" class="clean-card text-center py-12">
+      <div class="success-icon mb-4">
+        <i class="mdi mdi-check-circle-outline"></i>
+      </div>
+      <h2>{{ t('render-started') }}</h2>
+      <p class="text-muted mt-2 mb-6">视频渲染任务已提交至后台队列，您可以在任务列表中查看实时进度。</p>
+      <div class="d-flex justify-center gap-4">
+        <button class="btn btn-secondary" @click="stepIndex = 1">
+          <i class="mdi mdi-plus"></i> 继续渲染其他谱面
+        </button>
+        <button class="btn btn-primary" @click="router.push({ name: 'tasks' })">
+          <i class="mdi mdi-server"></i> {{ t('see-tasks') }}
+        </button>
+      </div>
+    </div>
 
-      <template v-slot:item.3>
-        <ConfigView ref="configView" :init-aspect-ratio="tryParseAspect()"></ConfigView>
-      </template>
-
-      <template v-slot:item.4>
-        <div class="d-flex flex-column justify-center align-center mb-2" style="gap: 1rem">
-          <span style="font-size: 84px">🎉</span>
-          <h2>{{ t('render-started') }}</h2>
-          <v-btn @click="router.push({ name: 'tasks' })" v-t="'see-tasks'"></v-btn>
-        </div>
-      </template>
-    </v-stepper>
-    <v-overlay v-model="fileHovering" contained class="align-center justify-center" persistent :close-on-content-click="false">
-      <h1 v-t="'choose.drop'"></h1>
-    </v-overlay>
+    <!-- Parsing loader modal -->
+    <div v-if="parsingChart" class="modal-overlay">
+      <div class="modal-content text-center py-8 align-center" style="max-width: 320px">
+        <i class="mdi mdi-loading mdi-spin text-primary" style="font-size: 40px"></i>
+        <h4>正在解析谱面文件...</h4>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.v-progress-linear,
-.v-progress-linear__determinate {
-  transition: none;
+.steps-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  gap: 12px;
 }
+
+.step-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-sub);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.step-active {
+  color: var(--primary) !important;
+  font-weight: 600;
+}
+
+.step-active .step-num {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+.step-done {
+  color: var(--text-muted);
+}
+
+.step-done .step-num {
+  background: var(--success-light);
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+}
+
+.choose-card {
+  padding: 32px 20px;
+}
+
+.drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.01);
+  transition: all 0.2s;
+}
+
+.drop-zone-hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.drop-icon {
+  font-size: 56px;
+  color: var(--primary);
+  margin-bottom: 12px;
+}
+
+.drop-hint {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-top: 6px;
+}
+
+.success-icon i {
+  font-size: 64px;
+  color: var(--success);
+}
+
+.d-flex { display: flex; }
+.flex-1 { flex: 1; }
+.justify-center { justify-content: center; }
+.align-center { align-items: center; }
+.gap-2 { gap: 8px; }
+.gap-4 { gap: 16px; }
+.mt-2 { margin-top: 8px; }
+.mt-4 { margin-top: 16px; }
+.mt-6 { margin-top: 24px; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-2 { margin-bottom: 8px; }
+.mb-4 { margin-bottom: 16px; }
+.mb-6 { margin-bottom: 24px; }
+.py-8 { padding-top: 32px; padding-bottom: 32px; }
+.py-12 { padding-top: 48px; padding-bottom: 48px; }
+.text-center { text-align: center; }
+.text-primary { color: var(--primary); }
+.text-success { color: var(--success); }
+.text-muted { color: var(--text-muted); }
 </style>
-}

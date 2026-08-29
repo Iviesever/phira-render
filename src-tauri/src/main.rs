@@ -40,6 +40,36 @@ use tokio::{io::AsyncWriteExt, process::Command};
 static ASSET_PATH: OnceLock<PathBuf> = OnceLock::new();
 static LOCK_FILE: OnceLock<tokio::fs::File> = OnceLock::new();
 
+#[cfg(target_os = "windows")]
+fn enable_hidpi() {
+    use std::ffi::c_void;
+    extern "system" {
+        fn LoadLibraryA(lpLibFileName: *const u8) -> *mut c_void;
+        fn GetProcAddress(hModule: *mut c_void, lpProcName: *const u8) -> *mut c_void;
+    }
+    unsafe {
+        let user32 = LoadLibraryA(b"user32.dll\0".as_ptr());
+        if !user32.is_null() {
+            let func_ptr = GetProcAddress(user32, b"SetProcessDpiAwarenessContext\0".as_ptr());
+            if !func_ptr.is_null() {
+                let set_dpi: unsafe extern "system" fn(isize) -> i32 = std::mem::transmute(func_ptr);
+                // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+                let _ = set_dpi(-4);
+                return;
+            }
+        }
+        let shcore = LoadLibraryA(b"shcore.dll\0".as_ptr());
+        if !shcore.is_null() {
+            let func_ptr = GetProcAddress(shcore, b"SetProcessDpiAwareness\0".as_ptr());
+            if !func_ptr.is_null() {
+                let set_dpi: unsafe extern "system" fn(i32) -> i32 = std::mem::transmute(func_ptr);
+                // PROCESS_PER_MONITOR_DPI_AWARE = 2
+                let _ = set_dpi(2);
+            }
+        }
+    }
+}
+
 #[inline]
 async fn wrap_async<R>(f: impl Future<Output = Result<R>>) -> Result<R, InvokeError> {
     f.await.map_err(|e| {
@@ -49,10 +79,13 @@ async fn wrap_async<R>(f: impl Future<Output = Result<R>>) -> Result<R, InvokeEr
 }
 
 pub fn build_conf() -> macroquad::window::Conf {
+    #[cfg(target_os = "windows")]
+    enable_hidpi();
     macroquad::window::Conf {
         window_title: "Phira".to_string(),
         window_width: 1080,
         window_height: 608,
+        high_dpi: true,
         headless: std::env::args().skip(1).next().as_deref() != Some("preview"),
         ..Default::default()
     }
@@ -68,6 +101,9 @@ async fn run_wrapped(f: impl Future<Output = Result<()>>) -> ! {
 
 #[macroquad::main(build_conf)]
 async fn main() -> Result<()> {
+    #[cfg(target_os = "windows")]
+    enable_hidpi();
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()

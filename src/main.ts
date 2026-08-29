@@ -9,16 +9,6 @@ import { changeLocale } from './common';
 import App from './App.vue';
 import router from './router';
 
-import { createVuetify } from 'vuetify';
-import * as components from 'vuetify/components';
-import * as directives from 'vuetify/directives';
-import { aliases, mdi } from 'vuetify/iconsets/mdi';
-import { VStepper, VStepperActions, VStepperHeader, VStepperItem } from 'vuetify/labs/VStepper';
-
-import 'vuetify/styles';
-
-import theme from './theme';
-
 export const SUPPORTED_LOCALES = ['en', 'zh-CN', 'zh-TW'];
 
 let locale = localStorage.getItem('locale');
@@ -66,32 +56,8 @@ const i18n = createI18n({
 });
 changeLocale(locale);
 
-const vuetify = createVuetify({
-  components: {
-    VStepper,
-    VStepperActions,
-    VStepperHeader,
-    VStepperItem,
-    ...components,
-  },
-  directives,
-  theme: {
-    defaultTheme: 'customTheme',
-    themes: {
-      customTheme: theme,
-    },
-  },
-  icons: {
-    defaultSet: 'mdi',
-    aliases,
-    sets: {
-      mdi,
-    },
-  },
-});
-
 const app = createApp(App);
-app.use(i18n).use(router).use(vuetify);
+app.use(i18n).use(router);
 
 app.mount('#app');
 

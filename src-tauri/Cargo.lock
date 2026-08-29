@@ -4036,7 +4036,7 @@ dependencies = [
  "macroquad",
  "open 5.3.4",
  "prpr",
- "prpr-l10n 0.1.0 (git+https://github.com/TeamFlos/phira)",
+ "prpr-l10n",
  "sasa",
  "serde",
  "serde_json",
@@ -4287,7 +4287,7 @@ dependencies = [
  "open 5.3.4",
  "ordered-float",
  "phf 0.13.1",
- "prpr-l10n 0.1.0",
+ "prpr-l10n",
  "rand 0.8.6",
  "regex",
  "rfd 0.17.2",
@@ -4315,21 +4315,6 @@ dependencies = [
 [[package]]
 name = "prpr-l10n"
 version = "0.1.0"
-dependencies = [
- "fluent",
- "fluent-syntax",
- "lru",
- "once_cell",
- "sys-locale",
- "tracing",
- "unic-langid",
- "walkdir",
-]
-
-[[package]]
-name = "prpr-l10n"
-version = "0.1.0"
-source = "git+https://github.com/TeamFlos/phira#15903cd7988f28c4427328d80293310374316b70"
 dependencies = [
  "fluent",
  "fluent-syntax",
