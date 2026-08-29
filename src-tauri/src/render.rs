@@ -308,7 +308,7 @@ pub async fn main() -> Result<()> {
         }
     }
     let mut proc = cmd_hidden(&ffmpeg)
-        .args("-y -f f32le -ar 44100 -ac 2 -i - -c:a mp3 -f mp3".split_whitespace())
+        .args("-y -f f32le -ar 44100 -ac 2 -i - -f wav".split_whitespace())
         .arg(mixing_output.path())
         .stdin(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -398,7 +398,7 @@ pub async fn main() -> Result<()> {
     };
 
     let args2 = format!(
-        "-c:a copy -c:v {codec} -pix_fmt yuv420p {quality_args} -map 0:v:0 -map 1:a:0 -vf vflip -f mp4",
+        "-c:a aac -b:a 320k -c:v {codec} -pix_fmt yuv420p {quality_args} -map 0:v:0 -map 1:a:0 -vf vflip -f mp4",
     );
 
     let mut proc = cmd_hidden(&ffmpeg)
