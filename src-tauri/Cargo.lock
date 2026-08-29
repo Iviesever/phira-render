@@ -2854,7 +2854,7 @@ dependencies = [
 [[package]]
 name = "miniquad"
 version = "0.3.15"
-source = "git+https://github.com/Mivik/prpr-miniquad.git?rev=0c525a3#0c525a3e0e38a8ab3d6d41bd2749eb8b6f676e4c"
+source = "git+https://github.com/Mivik/prpr-miniquad?rev=0c525a3#0c525a3e0e38a8ab3d6d41bd2749eb8b6f676e4c"
 dependencies = [
  "jni 0.21.1",
  "keyboard-types",
@@ -4036,7 +4036,7 @@ dependencies = [
  "macroquad",
  "open 5.3.4",
  "prpr",
- "prpr-l10n",
+ "prpr-l10n 0.1.0 (git+https://github.com/TeamFlos/phira)",
  "sasa",
  "serde",
  "serde_json",
@@ -4246,7 +4246,6 @@ dependencies = [
 [[package]]
 name = "prpr"
 version = "0.7.1"
-source = "git+https://github.com/TeamFlos/phira#15903cd7988f28c4427328d80293310374316b70"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4288,7 +4287,7 @@ dependencies = [
  "open 5.3.4",
  "ordered-float",
  "phf 0.13.1",
- "prpr-l10n",
+ "prpr-l10n 0.1.0",
  "rand 0.8.6",
  "regex",
  "rfd 0.17.2",
@@ -4311,6 +4310,20 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "zip",
+]
+
+[[package]]
+name = "prpr-l10n"
+version = "0.1.0"
+dependencies = [
+ "fluent",
+ "fluent-syntax",
+ "lru",
+ "once_cell",
+ "sys-locale",
+ "tracing",
+ "unic-langid",
+ "walkdir",
 ]
 
 [[package]]

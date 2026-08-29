@@ -65,8 +65,20 @@ pub async fn main() -> Result<()> {
     let mut main = Main::new(
         Box::new(BaseScene(
             Some(NextScene::Overlay(Box::new(
-                LoadingScene::new(GameMode::Normal, info, config, fs, Some(player), None, None, None, None)
-                    .await?,
+                LoadingScene::new(
+                    GameMode::Exercise,
+                    info,
+                    config,
+                    fs,
+                    Some(player),
+                    None,
+                    Some(Box::new(|_, res, _| {
+                        res.config.mods.insert(Mods::AUTOPLAY);
+                    })),
+                    None,
+                    None,
+                )
+                .await?,
             ))),
             false,
         )),
