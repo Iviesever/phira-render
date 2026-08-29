@@ -81,10 +81,36 @@ async fn wrap_async<R>(f: impl Future<Output = Result<R>>) -> Result<R, InvokeEr
 pub fn build_conf() -> macroquad::window::Conf {
     #[cfg(target_os = "windows")]
     enable_hidpi();
+
+    let mut width = 1280;
+    let mut height = 720;
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 5 && args.get(1).map(|s| s.as_str()) == Some("preview") {
+        if let (Ok(w), Ok(h)) = (args[3].parse::<i32>(), args[4].parse::<i32>()) {
+            if w > 0 && h > 0 {
+                width = w;
+                height = h;
+            }
+        }
+    } else {
+        #[cfg(target_os = "windows")]
+        {
+            extern "system" {
+                fn GetSystemMetrics(nIndex: i32) -> i32;
+            }
+            let screen_w = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
+            if screen_w > 0 {
+                width = ((screen_w as f32) * 0.75).min(1920.0).max(1280.0) as i32;
+                height = ((width as f32) * 9.0 / 16.0) as i32;
+            }
+        }
+    }
+
     macroquad::window::Conf {
         window_title: "Phira".to_string(),
-        window_width: 1280,
-        window_height: 720,
+        window_width: width,
+        window_height: height,
         window_resizable: true,
         high_dpi: false,
         headless: std::env::args().skip(1).next().as_deref() != Some("preview"),
@@ -316,11 +342,21 @@ async fn parse_chart(path: &Path) -> Result<ChartInfo, InvokeError> {
 }
 
 #[tauri::command]
-async fn preview_chart(params: RenderParams) -> Result<(), InvokeError> {
+async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<(), InvokeError> {
     wrap_async(async move {
+        let (pw, ph) = if let Ok(size) = window.outer_size() {
+            let w = size.width as i32;
+            let h = ((w as f32) * (9.0 / 16.0)).round() as i32;
+            (w, h)
+        } else {
+            (1280, 720)
+        };
+
         let mut child = Command::new(std::env::current_exe()?)
             .arg("preview")
             .arg(ASSET_PATH.get().unwrap())
+            .arg(pw.to_string())
+            .arg(ph.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
