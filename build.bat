@@ -34,6 +34,11 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+if not exist "%ROOT_DIR%src-tauri\target\release\assets" (
+    echo Syncing assets directory...
+    xcopy /E /I /Y "%ROOT_DIR%src-tauri\assets" "%ROOT_DIR%src-tauri\target\release\assets" >nul
+)
+
 echo.
 echo ===================================================
 echo [SUCCESS] phira-render.exe built successfully!

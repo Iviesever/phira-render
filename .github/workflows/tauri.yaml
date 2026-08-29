@@ -85,6 +85,7 @@ jobs:
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/phira-render.exe" "$pkgDir/phira-render.exe"
           $ffmpegPath = (Get-Command ffmpeg).Source
           Copy-Item $ffmpegPath "$pkgDir/ffmpeg.exe"
+          Copy-Item -Recurse -Force "src-tauri/assets" "$pkgDir/assets"
           Copy-Item "README.md" "$pkgDir/README.md"
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "${{ matrix.artifact }}" -Force
 
@@ -93,6 +94,7 @@ jobs:
         run: |
           mkdir -p dist-linux
           cp "src-tauri/target/${{ matrix.target }}/release/phira-render" dist-linux/phira-render
+          cp -r src-tauri/assets dist-linux/assets
           cp README.md dist-linux/README.md
           tar -czvf "${{ matrix.artifact }}" -C dist-linux .
 
