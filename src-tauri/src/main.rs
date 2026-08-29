@@ -85,7 +85,7 @@ pub fn build_conf() -> macroquad::window::Conf {
         window_title: "Phira".to_string(),
         window_width: 1080,
         window_height: 608,
-        high_dpi: true,
+        high_dpi: false,
         headless: std::env::args().skip(1).next().as_deref() != Some("preview"),
         ..Default::default()
     }
@@ -101,9 +101,6 @@ async fn run_wrapped(f: impl Future<Output = Result<()>>) -> ! {
 
 #[macroquad::main(build_conf)]
 async fn main() -> Result<()> {
-    #[cfg(target_os = "windows")]
-    enable_hidpi();
-
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()
@@ -125,6 +122,9 @@ async fn main() -> Result<()> {
             }
         }
     }
+
+    #[cfg(target_os = "windows")]
+    enable_hidpi();
 
     let tray_menu = SystemTrayMenu::new()
         .add_item(CustomMenuItem::new("toggle".to_owned(), mtl!("tray-hide")))
