@@ -781,9 +781,6 @@ async function replacePreset() {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 
 .preset-bar {
