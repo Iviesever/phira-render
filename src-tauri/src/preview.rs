@@ -4,12 +4,16 @@ use macroquad::prelude::*;
 use prpr::{
     config::{Config, Mods},
     fs,
-    scene::{show_error, GameMode, LoadingScene, NextScene, Scene},
+    scene::{
+        set_preview_channels, show_error, GameMode, LoadingScene, NextScene, PreviewAction,
+        PreviewStatusReport, Scene,
+    },
     time::TimeManager,
     ui::{FontArc, TextPainter, Ui},
     Main,
 };
-use std::io::BufRead;
+use std::io::{BufRead, Write};
+use std::sync::mpsc::channel;
 
 struct BaseScene(Option<NextScene>, bool);
 impl Scene for BaseScene {
@@ -43,12 +47,60 @@ impl Scene for BaseScene {
 pub async fn main() -> Result<()> {
     set_pc_assets_folder(&std::env::args().nth(2).unwrap());
 
-    let mut stdin = std::io::stdin().lock();
-    let stdin = &mut stdin;
+    let (action_tx, action_rx) = channel::<PreviewAction>();
+    let (status_tx, status_rx) = channel::<PreviewStatusReport>();
+    set_preview_channels(action_rx, status_tx);
 
     let mut line = String::new();
-    stdin.read_line(&mut line)?;
+    std::io::stdin().read_line(&mut line)?;
     let params: RenderParams = serde_json::from_str(line.trim())?;
+
+    // Spawn background thread to read commands from stdin
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let mut handle = stdin.lock();
+        let mut buf = String::new();
+        while let Ok(n) = handle.read_line(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let trimmed = buf.trim();
+            if !trimmed.is_empty() {
+                if let Ok(action) = serde_json::from_str::<PreviewAction>(trimmed) {
+                    let is_exit = matches!(action, PreviewAction::Exit);
+                    let _ = action_tx.send(action);
+                    if is_exit {
+                        break;
+                    }
+                }
+            }
+            buf.clear();
+        }
+    });
+
+    // Spawn background thread to output status to stdout
+    std::thread::spawn(move || {
+        let mut last_report_time = std::time::Instant::now();
+        let mut last_status: Option<PreviewStatusReport> = None;
+        let mut stdout = std::io::stdout().lock();
+        while let Ok(status) = status_rx.recv() {
+            let should_send = last_status.as_ref().map_or(true, |last| {
+                last.paused != status.paused
+                    || (last.speed - status.speed).abs() > 0.001
+                    || (last.start - status.start).abs() > 0.01
+                    || (last.end - status.end).abs() > 0.01
+                    || last_report_time.elapsed().as_millis() >= 50
+            });
+            if should_send {
+                last_report_time = std::time::Instant::now();
+                if let Ok(json) = serde_json::to_string(&status) {
+                    let _ = writeln!(stdout, "STATUS:{}", json);
+                    let _ = stdout.flush();
+                }
+                last_status = Some(status);
+            }
+        }
+    });
 
     let fs = fs::fs_from_file(&params.path)?;
     let info = params.info;
@@ -61,7 +113,7 @@ pub async fn main() -> Result<()> {
     let player = build_player(&params.config).await?;
 
     let tm = TimeManager::default();
-    let ctm = TimeManager::from_config(&config); // strange variable name...
+    let ctm = TimeManager::from_config(&config);
     let mut main = Main::new(
         Box::new(BaseScene(
             Some(NextScene::Overlay(Box::new(
@@ -86,21 +138,12 @@ pub async fn main() -> Result<()> {
         None,
     )
     .await?;
-    let mut fps_time = -1;
 
     'app: loop {
-        let frame_start = tm.real_time();
         main.update()?;
         main.render(&mut painter)?;
         if main.should_exit() {
             break 'app;
-        }
-
-        let t = tm.real_time();
-        let fps_now = t as i32;
-        if fps_now != fps_time {
-            fps_time = fps_now;
-            info!("| {}", (1. / (t - frame_start)) as u32);
         }
 
         next_frame().await;

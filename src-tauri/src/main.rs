@@ -82,7 +82,7 @@ pub fn build_conf() -> macroquad::window::Conf {
     #[cfg(target_os = "windows")]
     enable_hidpi();
 
-    let mut width = 1700;
+    let mut width = 1280;
     let mut height = 720;
 
     let args: Vec<String> = std::env::args().collect();
@@ -181,6 +181,7 @@ async fn main() -> Result<()> {
             test_ffmpeg,
             open_app_folder,
             get_refresh_rate,
+            send_preview_command,
         ])
         .on_system_tray_event(|app, event| match event {
             SystemTrayEvent::MenuItemClick { id, .. } => {
@@ -341,17 +342,41 @@ async fn parse_chart(path: &Path) -> Result<ChartInfo, InvokeError> {
     .await
 }
 
+#[cfg(target_os = "windows")]
+mod win32 {
+    #[repr(C)]
+    #[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
+    pub struct RECT {
+        pub left: i32,
+        pub top: i32,
+        pub right: i32,
+        pub bottom: i32,
+    }
+
+    extern "system" {
+        pub fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> isize;
+        pub fn GetWindowRect(hWnd: isize, lpRect: *mut RECT) -> i32;
+        pub fn IsWindow(hWnd: isize) -> i32;
+    }
+}
+
+static PREVIEW_CHILD_STDIN: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>> =
+    std::sync::Mutex::new(None);
+
+#[tauri::command]
+fn send_preview_command(cmd: String) -> Result<(), InvokeError> {
+    if let Ok(guard) = PREVIEW_CHILD_STDIN.lock() {
+        if let Some(tx) = guard.as_ref() {
+            let _ = tx.send(cmd);
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<(), InvokeError> {
     wrap_async(async move {
-        let (pw, ph) = if let Ok(size) = window.outer_size() {
-            let h = (size.height as i32).max(640);
-            let chart_w = ((h as f32) * (16.0 / 9.0)).round() as i32;
-            let sidebar_w = 420;
-            (chart_w + sidebar_w, h)
-        } else {
-            (1700, 720)
-        };
+        let (pw, ph) = (1280, 720);
 
         let mut child = Command::new(std::env::current_exe()?)
             .arg("preview")
@@ -359,7 +384,7 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
             .arg(pw.to_string())
             .arg(ph.to_string())
             .stdin(Stdio::piped())
-            .stdout(Stdio::inherit())
+            .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()?;
 
@@ -367,6 +392,103 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
         stdin
             .write_all(format!("{}\n", serde_json::to_string(&params)?).as_bytes())
             .await?;
+
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        if let Ok(mut guard) = PREVIEW_CHILD_STDIN.lock() {
+            *guard = Some(cmd_tx);
+        }
+
+        tokio::spawn(async move {
+            while let Some(cmd) = cmd_rx.recv().await {
+                let _ = stdin.write_all(format!("{}\n", cmd).as_bytes()).await;
+                let _ = stdin.flush().await;
+            }
+        });
+
+        let app_handle = window.app_handle();
+        if let Some(existing) = app_handle.get_window("preview_control") {
+            let _ = existing.close();
+        }
+
+        let ctrl_win = tauri::WindowBuilder::new(
+            &app_handle,
+            "preview_control",
+            tauri::WindowUrl::App("/preview-control".into()),
+        )
+        .title("Phira 预览控制")
+        .inner_size(360.0, 720.0)
+        .resizable(true)
+        .always_on_top(true)
+        .build()?;
+
+        let child_stdout = child.stdout.take().unwrap();
+        let ctrl_win_events = ctrl_win.clone();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut reader = BufReader::new(child_stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if let Some(json_str) = line.strip_prefix("STATUS:") {
+                    let _ = ctrl_win_events.emit("preview-status", json_str);
+                }
+            }
+            let _ = ctrl_win_events.close();
+        });
+
+        #[cfg(target_os = "windows")]
+        {
+            let ctrl_win_for_dock = ctrl_win.clone();
+            tokio::spawn(async move {
+                let title: Vec<u16> = "Phira\0".encode_utf16().collect();
+                let mut phira_hwnd = 0;
+                for _ in 0..60 {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    let hwnd = unsafe { win32::FindWindowW(std::ptr::null(), title.as_ptr()) };
+                    if hwnd != 0 {
+                        phira_hwnd = hwnd;
+                        break;
+                    }
+                }
+                if phira_hwnd != 0 {
+                    let mut last_rect: Option<win32::RECT> = None;
+                    while unsafe { win32::IsWindow(phira_hwnd) } != 0 {
+                        let mut rect: win32::RECT = unsafe { std::mem::zeroed() };
+                        if unsafe { win32::GetWindowRect(phira_hwnd, &mut rect) } != 0 {
+                            let changed = last_rect.map_or(true, |lr| {
+                                lr.left != rect.left
+                                    || lr.top != rect.top
+                                    || lr.right != rect.right
+                                    || lr.bottom != rect.bottom
+                            });
+                            if changed {
+                                last_rect = Some(rect);
+                                let target_x = rect.right;
+                                let target_y = rect.top;
+                                let target_h = (rect.bottom - rect.top).max(400) as u32;
+                                let _ = ctrl_win_for_dock.set_position(tauri::Position::Physical(
+                                    tauri::PhysicalPosition {
+                                        x: target_x,
+                                        y: target_y,
+                                    },
+                                ));
+                                let _ = ctrl_win_for_dock.set_size(tauri::Size::Physical(
+                                    tauri::PhysicalSize {
+                                        width: 360,
+                                        height: target_h,
+                                    },
+                                ));
+                            }
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                    }
+                    let _ = ctrl_win_for_dock.close();
+                }
+            });
+        }
+
+        tokio::spawn(async move {
+            let _ = child.wait().await;
+            let _ = ctrl_win.close();
+        });
 
         Ok(())
     })

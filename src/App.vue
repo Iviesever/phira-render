@@ -81,7 +81,7 @@ window.goto = (name: string) => {
     </div>
 
     <!-- Left Clean Sidebar -->
-    <aside class="sidebar">
+    <aside class="sidebar" v-if="route.name !== 'preview-control'">
       <div class="sidebar-brand">
         <div class="brand-icon">
           <i class="mdi mdi-play-circle-outline"></i>
@@ -108,7 +108,7 @@ window.goto = (name: string) => {
     </aside>
 
     <!-- Main Views Area -->
-    <main class="main-content">
+    <main class="main-content" :class="{ 'preview-mode': route.name === 'preview-control' }">
       <router-view v-slot="{ Component }">
         <Suspense timeout="0">
           <template #default>
@@ -127,6 +127,11 @@ window.goto = (name: string) => {
 </template>
 
 <style scoped>
+.preview-mode {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
 .sidebar {
   width: 200px;
   background-color: var(--bg-sidebar);

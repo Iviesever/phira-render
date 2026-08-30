@@ -61,6 +61,52 @@ pub struct SimpleRecord {
     pub full_combo: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PreviewStatusReport {
+    pub time: f64,
+    pub paused: bool,
+    pub speed: f32,
+    pub start: f64,
+    pub end: f64,
+    pub length: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum PreviewAction {
+    #[serde(rename = "pause")]
+    Pause,
+    #[serde(rename = "resume")]
+    Resume,
+    #[serde(rename = "toggle_pause")]
+    TogglePause,
+    #[serde(rename = "replay")]
+    Replay,
+    #[serde(rename = "seek")]
+    Seek { time: f64 },
+    #[serde(rename = "set_speed")]
+    SetSpeed { speed: f32 },
+    #[serde(rename = "set_range")]
+    SetRange { start: f64, end: f64 },
+    #[serde(rename = "exit")]
+    Exit,
+}
+
+pub static PREVIEW_ACTION_RX: Mutex<Option<std::sync::mpsc::Receiver<PreviewAction>>> = Mutex::new(None);
+pub static PREVIEW_STATUS_TX: Mutex<Option<std::sync::mpsc::Sender<PreviewStatusReport>>> = Mutex::new(None);
+
+pub fn set_preview_channels(
+    rx: std::sync::mpsc::Receiver<PreviewAction>,
+    tx: std::sync::mpsc::Sender<PreviewStatusReport>,
+) {
+    if let Ok(mut r) = PREVIEW_ACTION_RX.lock() {
+        *r = Some(rx);
+    }
+    if let Ok(mut t) = PREVIEW_STATUS_TX.lock() {
+        *t = Some(tx);
+    }
+}
+
 impl SimpleRecord {
     pub fn update(&mut self, other: &SimpleRecord) -> bool {
         let mut changed = false;
@@ -558,52 +604,29 @@ impl GameScene {
     fn overlay_ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
         let c = semi_white(self.res.alpha);
         let res = &mut self.res;
-        if tm.paused() {
-            let ui_top = ui.top;
-            let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
-            let (cx, o, s, w, divider_x, sidebar_w) = if self.mode == GameMode::Exercise {
-                let target_chart_w_norm = (3.555556 / asp).min(1.48);
-                let div_x = -1.0 + target_chart_w_norm;
-                let sw = 1.0 - div_x;
-                let center = div_x + sw / 2.0;
-
-                // Dedicated Right Attached Sidebar Background & Glowing Divider
-                ui.fill_rect(Rect::new(div_x, -ui_top, sw, ui_top * 2.0), Color::new(0.06, 0.08, 0.12, 0.98));
-                ui.fill_rect(Rect::new(div_x - 0.003, -ui_top, 0.003, ui_top * 2.0), Color::new(0.24, 0.32, 0.48, 0.85));
-
-                // Sidebar Header Title
-                ui.text("谱面预览控制")
-                    .pos(center, -ui_top + 0.04)
-                    .anchor(0.5, 0.)
-                    .size(0.60)
-                    .color(Color::new(0.65, 0.78, 0.98, 0.9))
-                    .draw();
-
-                (center, -ui_top + 0.12, 0.035, 0.025, div_x, sw)
-            } else {
-                let h = 1. / res.aspect_ratio;
-                draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6));
-                (0.0, 0.0, 0.06, 0.05, 1.0, 0.0)
-            };
-
+        if tm.paused() && self.mode != GameMode::Exercise {
+            let h = 1. / res.aspect_ratio;
+            draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6));
+            let s = 0.06;
+            let w = 0.05;
             let no_retry = self.mode == GameMode::NoRetry;
             draw_texture_ex(
                 *res.icon_back,
-                cx - s * 3. - w,
-                -s + o,
+                -s * 3. - w,
+                -s,
                 c,
                 DrawTextureParams {
                     dest_size: Some(vec2(s * 2., s * 2.)),
                     ..Default::default()
                 },
             );
-            let r = Rect::new(cx, o, 0., 0.).feather(s);
+            let r = Rect::new(0., 0., 0., 0.).feather(s);
             let disabled_color = semi_white(res.alpha * 0.4);
-            ui.fill_rect(r, (*res.icon_retry, r.feather(0.015), ScaleType::Fit, if no_retry { disabled_color } else { c }));
+            ui.fill_rect(r, (*res.icon_retry, r.feather(0.02), ScaleType::Fit, if no_retry { disabled_color } else { c }));
             draw_texture_ex(
                 *res.icon_resume,
-                cx + s + w,
-                -s + o,
+                s + w,
+                -s,
                 if self.dead { disabled_color } else { c },
                 DrawTextureParams {
                     dest_size: Some(vec2(s * 2., s * 2.)),
@@ -619,7 +642,7 @@ impl GameScene {
                     let p = touch.position;
                     let p = Point::new(p.x, p.y);
                     for i in -1..=1 {
-                        let ct = Point::new(cx + (s * 2. + w) * i as f32, o);
+                        let ct = Point::new((s * 2. + w) * i as f32, 0.);
                         let d = p - ct;
                         if d.x.abs() <= s && d.y.abs() <= s {
                             clicked = Some(i);
@@ -630,21 +653,7 @@ impl GameScene {
                 if no_retry && clicked == Some(0) || self.dead && clicked == Some(1) {
                     clicked = None;
                 }
-                let mut pos = self.music.position();
-                if self.mode == GameMode::Exercise {
-                    pos = tm.now();
-                }
-                if clicked.is_some_and(|it| it != -1) && (tm.speed - res.config.speed as f64).abs() > 0.01 {
-                    debug!("recreating music");
-                    self.music = res.audio.create_music(
-                        res.music.clone(),
-                        MusicParams {
-                            amplifier: res.config.volume_music as _,
-                            playback_rate: res.config.speed as _,
-                            ..Default::default()
-                        },
-                    )?;
-                }
+                let pos = self.music.position();
                 match clicked {
                     Some(-1) => {
                         self.should_exit = true;
@@ -653,18 +662,10 @@ impl GameScene {
                     }
                     Some(0) => {
                         reset!(self, res, tm);
-                        if self.mode == GameMode::Exercise {
-                            self.judge.advance_to(&mut self.chart, self.exercise_range.start);
-                        }
                         #[cfg(target_env = "ohos")]
                         miniquad::native::set_interceptor_state(true);
                     }
                     Some(1) => {
-                        if self.mode == GameMode::Exercise && (tm.now() > self.exercise_range.end || tm.now() < self.exercise_range.start) {
-                            tm.seek_to(self.exercise_range.start);
-                            self.music.seek_to(self.exercise_range.start)?;
-                            pos = self.exercise_range.start;
-                        }
                         self.music.play()?;
                         res.time -= 3.;
                         let dst = pos - 3.;
@@ -684,213 +685,6 @@ impl GameScene {
                     }
                     _ => {}
                 }
-            }
-            if self.mode == GameMode::Exercise {
-                let slider_w = sidebar_w * 0.76;
-                ui.scope(|ui| {
-                    ui.dx(cx - slider_w * 0.36);
-                    ui.dy(-ui_top + 0.22);
-                    ui.slider(tl!("speed"), 0.5..2.0, 0.05, &mut self.res.config.speed, Some(slider_w * 0.95));
-                });
-                
-                let hw = sidebar_w * 0.38;
-                let track_y = -ui_top + 0.45;
-                let h_bar = 0.009;
-                let eh = 0.045;
-                let rad = 0.016;
-                let sp = self.offset().min(0.) as f64;
-                
-                // Track bar background & border
-                let track_rect = Rect::new(cx - hw, track_y - h_bar, hw * 2., h_bar * 2.);
-                ui.fill_rect(track_rect.feather(0.002), Color::new(0.24, 0.30, 0.42, 0.8));
-                ui.fill_rect(track_rect, Color::new(0.09, 0.11, 0.16, 0.9));
-                
-                let st = cx - hw + ((self.exercise_range.start - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                let en = cx - hw + ((self.exercise_range.end - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                let t = tm.now();
-                let cur = cx - hw + ((t - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                
-                // Selection range highlight
-                let sel_rect = Rect::new(st, track_y - h_bar, en - st, h_bar * 2.);
-                ui.fill_rect(sel_rect, Color::new(0.23, 0.51, 0.96, 0.35));
-                ui.fill_rect(Rect::new(st, track_y - h_bar, en - st, 0.002), Color::new(0.35, 0.65, 1.0, 0.8));
-                ui.fill_rect(Rect::new(st, track_y + h_bar - 0.002, en - st, 0.002), Color::new(0.35, 0.65, 1.0, 0.8));
-
-                // Blue start pin
-                ui.fill_rect(Rect::new(st - 0.0015, track_y - eh, 0.003, eh), Color::new(0.25, 0.6, 1.0, 0.95));
-                ui.fill_circle(st, track_y - eh, rad, Color::new(0.2, 0.55, 1.0, 1.0));
-                ui.fill_circle(st, track_y - eh, rad * 0.38, WHITE);
-                if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(st, track_y - eh, 0., 0.).feather(rad * 1.5));
-                    self.exercise_press = Judge::get_touches()
-                        .iter()
-                        .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
-                        .map(|it| (-1, it.id));
-                }
-
-                // Red end pin
-                ui.fill_rect(Rect::new(en - 0.0015, track_y, 0.003, eh), Color::new(1.0, 0.3, 0.35, 0.95));
-                ui.fill_circle(en, track_y + eh, rad, Color::new(1.0, 0.3, 0.35, 1.0));
-                ui.fill_circle(en, track_y + eh, rad * 0.38, WHITE);
-                if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(en, track_y + eh, 0., 0.).feather(rad * 1.5));
-                    self.exercise_press = Judge::get_touches()
-                        .iter()
-                        .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
-                        .map(|it| (1, it.id));
-                }
-
-                // Green current time cursor
-                ui.fill_rect(Rect::new(cur - 0.002, track_y - h_bar * 2.2, 0.004, h_bar * 4.4), Color::new(0.1, 0.85, 0.45, 0.95));
-                ui.fill_circle(cur, track_y, rad * 0.9, Color::new(0.1, 0.85, 0.45, 1.0));
-                ui.fill_circle(cur, track_y, rad * 0.35, WHITE);
-                if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(cur, track_y, 0., 0.).feather(rad * 1.5));
-                    self.exercise_press = Judge::get_touches()
-                        .iter()
-                        .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
-                        .map(|it| (0, it.id));
-                }
-
-                // Current time pill box (Above Track Bar)
-                let time_y = -ui_top + 0.32;
-                let is_editing = self.exercise_edit_target == Some(2);
-                let text = if is_editing {
-                    self.exercise_edit_text.as_str()
-                } else {
-                    &fmt_time(t as f32)
-                };
-                let mut tx = ui
-                    .text(text)
-                    .pos(cx, time_y)
-                    .anchor(0.5, 0.)
-                    .size(0.75)
-                    .color(Color::new(0.92, 0.96, 1.0, 1.0));
-                let re = tx.measure();
-                self.exercise_btns.2.set(tx.ui, re);
-                if is_editing {
-                    tx.ui.fill_rect(re.feather(0.014), Color::new(0.25, 0.65, 1.0, 0.95));
-                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.11, 0.15, 0.24, 0.98));
-                } else {
-                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.24, 0.30, 0.42, 0.7));
-                    tx.ui.fill_rect(re.feather(0.008), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.2.touching() { 0.95 } else { 0.85 }));
-                }
-                tx.draw();
-                if is_editing && (tm.real_time() * 2.5).fract() < 0.5 {
-                    let cur_idx = self.exercise_edit_cursor.min(self.exercise_edit_text.len());
-                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.75).measure().w };
-                    let cursor_x = re.x + w;
-                    ui.fill_rect(Rect::new(cursor_x - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
-                }
-
-                // Touch seek logic
-                if let Some((ctrl, id)) = &self.exercise_press {
-                    if let Some(touch) = Judge::get_touches().iter().rfind(|it| it.id == *id) {
-                        let x = touch.position.x;
-                        let p = (x - (cx - hw)) as f64 / (hw * 2.) as f64 * (self.res.track_length - sp) + sp;
-                        let p = if self.res.track_length - sp <= 3. || *ctrl == 0 {
-                            p.clamp(sp, self.res.track_length)
-                        } else {
-                            p.clamp(
-                                if *ctrl == -1 { sp } else { self.exercise_range.start + 3. },
-                                if *ctrl == -1 {
-                                    self.exercise_range.end - 3.
-                                } else {
-                                    self.res.track_length
-                                },
-                            )
-                        };
-                        if *ctrl == 0 {
-                            tm.seek_to(p);
-                            self.music.seek_to(p)?;
-                            self.bad_notes.clear();
-                            self.judge.reset();
-                            self.chart.reset();
-                            self.res.judge_line_color = self.res.res_pack.info.color_perfect();
-                        } else {
-                            *(if *ctrl == -1 {
-                                &mut self.exercise_range.start
-                            } else {
-                                &mut self.exercise_range.end
-                            }) = p;
-                        }
-                        if matches!(touch.phase, TouchPhase::Cancelled | TouchPhase::Ended) {
-                            self.exercise_press = None;
-                        }
-                    }
-                }
-
-                // Bottom Range pill boxes (Start 至 End)
-                let range_y = -ui_top + 0.58;
-                let r = ui.text(tl!("to")).pos(cx, range_y).size(0.65).color(Color::new(0.65, 0.75, 0.88, 0.9)).anchor(0.5, 0.).draw();
-                
-                // Start time box
-                let is_editing = self.exercise_edit_target == Some(0);
-                let text = if is_editing {
-                    self.exercise_edit_text.as_str()
-                } else {
-                    &fmt_time(self.exercise_range.start as f32)
-                };
-                let mut tx = ui
-                    .text(text)
-                    .pos(r.x - 0.012, range_y)
-                    .anchor(1., 0.)
-                    .size(0.72)
-                    .color(Color::new(0.92, 0.96, 1.0, 1.0));
-                let re = tx.measure();
-                self.exercise_btns.0.set(tx.ui, re);
-                if is_editing {
-                    tx.ui.fill_rect(re.feather(0.014), Color::new(0.25, 0.65, 1.0, 0.95));
-                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.11, 0.15, 0.24, 0.98));
-                } else {
-                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.24, 0.30, 0.42, 0.7));
-                    tx.ui.fill_rect(re.feather(0.008), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.0.touching() { 0.95 } else { 0.85 }));
-                }
-                tx.draw();
-                if is_editing && (tm.real_time() * 2.5).fract() < 0.5 {
-                    let cur_idx = self.exercise_edit_cursor.min(self.exercise_edit_text.len());
-                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.72).measure().w };
-                    let cursor_x = re.x + w;
-                    ui.fill_rect(Rect::new(cursor_x - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
-                }
-
-                // End time box
-                let is_editing = self.exercise_edit_target == Some(1);
-                let text = if is_editing {
-                    self.exercise_edit_text.as_str()
-                } else {
-                    &fmt_time(self.exercise_range.end as f32)
-                };
-                let mut tx = ui
-                    .text(text)
-                    .pos(r.right() + 0.012, range_y)
-                    .size(0.72)
-                    .color(Color::new(0.92, 0.96, 1.0, 1.0));
-                let re = tx.measure();
-                self.exercise_btns.1.set(tx.ui, re);
-                if is_editing {
-                    tx.ui.fill_rect(re.feather(0.014), Color::new(0.25, 0.65, 1.0, 0.95));
-                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.11, 0.15, 0.24, 0.98));
-                } else {
-                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.24, 0.30, 0.42, 0.7));
-                    tx.ui.fill_rect(re.feather(0.008), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.1.touching() { 0.95 } else { 0.85 }));
-                }
-                tx.draw();
-                if is_editing && (tm.real_time() * 2.5).fract() < 0.5 {
-                    let cur_idx = self.exercise_edit_cursor.min(self.exercise_edit_text.len());
-                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.72).measure().w };
-                    let cursor_x = re.x + w;
-                    ui.fill_rect(Rect::new(cursor_x - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
-                }
-
-                // Shortcut Hints at bottom of sidebar
-                let tip_y = ui_top - 0.035;
-                ui.text("Space 暂停/继续 | R 重播选区")
-                    .pos(cx, tip_y)
-                    .anchor(0.5, 1.)
-                    .size(0.48)
-                    .color(Color::new(0.45, 0.52, 0.65, 0.75))
-                    .draw();
             }
         }
         if let Some(time) = self.pause_rewind {
@@ -1027,6 +821,105 @@ impl Scene for GameScene {
         if matches!(self.state, State::Playing) {
             tm.update(self.music.position());
         }
+
+        if self.mode == GameMode::Exercise {
+            if let Ok(rx_guard) = PREVIEW_ACTION_RX.lock() {
+                if let Some(rx) = rx_guard.as_ref() {
+                    while let Ok(action) = rx.try_recv() {
+                        match action {
+                            PreviewAction::Pause => {
+                                tm.pause();
+                                self.music.pause().ok();
+                            }
+                            PreviewAction::Resume => {
+                                if tm.now() > self.exercise_range.end || tm.now() < self.exercise_range.start {
+                                    tm.seek_to(self.exercise_range.start);
+                                    self.music.seek_to(self.exercise_range.start).ok();
+                                }
+                                self.music.play().ok();
+                                tm.resume();
+                            }
+                            PreviewAction::TogglePause => {
+                                if tm.paused() {
+                                    if tm.now() > self.exercise_range.end || tm.now() < self.exercise_range.start {
+                                        tm.seek_to(self.exercise_range.start);
+                                        self.music.seek_to(self.exercise_range.start).ok();
+                                    }
+                                    self.music.play().ok();
+                                    tm.resume();
+                                } else {
+                                    tm.pause();
+                                    self.music.pause().ok();
+                                }
+                            }
+                            PreviewAction::Replay => {
+                                reset!(self, self.res, tm);
+                                self.judge.advance_to(&mut self.chart, self.exercise_range.start);
+                                self.music.seek_to(self.exercise_range.start).ok();
+                                self.music.play().ok();
+                                tm.resume();
+                                tm.seek_to(self.exercise_range.start);
+                            }
+                            PreviewAction::Seek { time } => {
+                                let was_paused = tm.paused();
+                                tm.seek_to(time);
+                                self.music.seek_to(time).ok();
+                                if was_paused {
+                                    tm.pause();
+                                    self.music.pause().ok();
+                                }
+                                self.bad_notes.clear();
+                                self.judge.reset();
+                                self.chart.reset();
+                                self.judge.advance_to(&mut self.chart, time);
+                                self.res.judge_line_color = self.res.res_pack.info.color_perfect();
+                            }
+                            PreviewAction::SetSpeed { speed } => {
+                                self.res.config.speed = speed;
+                                tm.speed = speed as f64;
+                                if let Ok(new_music) = self.res.audio.create_music(
+                                    self.res.music.clone(),
+                                    MusicParams {
+                                        amplifier: self.res.config.volume_music as _,
+                                        playback_rate: speed as _,
+                                        ..Default::default()
+                                    },
+                                ) {
+                                    let cur_pos = self.music.position();
+                                    self.music = new_music;
+                                    self.music.seek_to(cur_pos).ok();
+                                    if !tm.paused() {
+                                        self.music.play().ok();
+                                    }
+                                }
+                            }
+                            PreviewAction::SetRange { start, end } => {
+                                self.exercise_range.start = start;
+                                self.exercise_range.end = end;
+                            }
+                            PreviewAction::Exit => {
+                                self.should_exit = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Report status
+            if let Ok(tx_guard) = PREVIEW_STATUS_TX.lock() {
+                if let Some(tx) = tx_guard.as_ref() {
+                    let _ = tx.send(PreviewStatusReport {
+                        time: tm.now(),
+                        paused: tm.paused(),
+                        speed: self.res.config.speed,
+                        start: self.exercise_range.start,
+                        end: self.exercise_range.end,
+                        length: self.res.track_length,
+                    });
+                }
+            }
+        }
+
         if self.mode == GameMode::Exercise && tm.now() > self.exercise_range.end && !tm.paused() {
             let state = self.state.clone();
             reset!(self, self.res, tm);

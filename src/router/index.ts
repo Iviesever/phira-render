@@ -5,6 +5,7 @@ import AboutView from '../AboutView.vue';
 import RenderView from '../RenderView.vue';
 import RPEView from '../RPEView.vue';
 import TasksView from '../TasksView.vue';
+import PreviewControlView from '../PreviewControlView.vue';
 
 import { useOnLoaded } from '../App.vue';
 
@@ -24,6 +25,11 @@ const router = createRouter({
       path: '/about',
       name: 'about',
       component: AboutView,
+    },
+    {
+      path: '/preview-control',
+      name: 'preview-control',
+      component: PreviewControlView,
     },
   ],
   scrollBehavior(_to, from, savedPosition) {
