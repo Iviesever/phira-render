@@ -353,10 +353,29 @@ mod win32 {
         pub bottom: i32,
     }
 
+    pub const GWLP_HWNDPARENT: i32 = -8;
+    pub const SW_HIDE: i32 = 0;
+    pub const SW_SHOWNOACTIVATE: i32 = 4;
+    pub const SWP_NOACTIVATE: u32 = 0x0010;
+    pub const SWP_NOZORDER: u32 = 0x0004;
+
     extern "system" {
         pub fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> isize;
         pub fn GetWindowRect(hWnd: isize, lpRect: *mut RECT) -> i32;
         pub fn IsWindow(hWnd: isize) -> i32;
+        pub fn IsIconic(hWnd: isize) -> i32;
+        pub fn IsWindowVisible(hWnd: isize) -> i32;
+        pub fn ShowWindow(hWnd: isize, nCmdShow: i32) -> i32;
+        pub fn SetWindowLongPtrW(hWnd: isize, nIndex: i32, dwNewLong: isize) -> isize;
+        pub fn SetWindowPos(
+            hWnd: isize,
+            hWndInsertAfter: isize,
+            X: i32,
+            Y: i32,
+            cx: i32,
+            cy: i32,
+            uFlags: u32,
+        ) -> i32;
     }
 }
 
@@ -418,7 +437,8 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
         .title("Phira 预览控制")
         .inner_size(360.0, 720.0)
         .resizable(true)
-        .always_on_top(true)
+        .always_on_top(false)
+        .skip_taskbar(true)
         .build()?;
 
         let child_stdout = child.stdout.take().unwrap();
@@ -438,47 +458,78 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
         {
             let ctrl_win_for_dock = ctrl_win.clone();
             tokio::spawn(async move {
-                let title: Vec<u16> = "Phira\0".encode_utf16().collect();
+                let ctrl_title: Vec<u16> = "Phira 预览控制\0".encode_utf16().collect();
+                let phira_title: Vec<u16> = "Phira\0".encode_utf16().collect();
                 let mut phira_hwnd = 0;
-                for _ in 0..60 {
+                let mut ctrl_hwnd = 0;
+
+                for _ in 0..80 {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    let hwnd = unsafe { win32::FindWindowW(std::ptr::null(), title.as_ptr()) };
-                    if hwnd != 0 {
-                        phira_hwnd = hwnd;
+                    if phira_hwnd == 0 {
+                        phira_hwnd = unsafe { win32::FindWindowW(std::ptr::null(), phira_title.as_ptr()) };
+                    }
+                    if ctrl_hwnd == 0 {
+                        ctrl_hwnd = unsafe { win32::FindWindowW(std::ptr::null(), ctrl_title.as_ptr()) };
+                    }
+                    if phira_hwnd != 0 && ctrl_hwnd != 0 {
                         break;
                     }
                 }
-                if phira_hwnd != 0 {
+
+                if phira_hwnd != 0 && ctrl_hwnd != 0 {
+                    // Set Phira window as the OWNER of the Control window
+                    // This ties its z-order, taskbar grouping, and alt-tab behavior directly to Phira!
+                    unsafe {
+                        win32::SetWindowLongPtrW(ctrl_hwnd, win32::GWLP_HWNDPARENT, phira_hwnd);
+                    }
+
                     let mut last_rect: Option<win32::RECT> = None;
+                    let mut was_minimized = false;
+
                     while unsafe { win32::IsWindow(phira_hwnd) } != 0 {
-                        let mut rect: win32::RECT = unsafe { std::mem::zeroed() };
-                        if unsafe { win32::GetWindowRect(phira_hwnd, &mut rect) } != 0 {
-                            let changed = last_rect.map_or(true, |lr| {
-                                lr.left != rect.left
-                                    || lr.top != rect.top
-                                    || lr.right != rect.right
-                                    || lr.bottom != rect.bottom
-                            });
-                            if changed {
-                                last_rect = Some(rect);
-                                let target_x = rect.right;
-                                let target_y = rect.top;
-                                let target_h = (rect.bottom - rect.top).max(400) as u32;
-                                let _ = ctrl_win_for_dock.set_position(tauri::Position::Physical(
-                                    tauri::PhysicalPosition {
-                                        x: target_x,
-                                        y: target_y,
-                                    },
-                                ));
-                                let _ = ctrl_win_for_dock.set_size(tauri::Size::Physical(
-                                    tauri::PhysicalSize {
-                                        width: 360,
-                                        height: target_h,
-                                    },
-                                ));
+                        let is_iconic = unsafe { win32::IsIconic(phira_hwnd) } != 0;
+                        let is_vis = unsafe { win32::IsWindowVisible(phira_hwnd) } != 0;
+
+                        if is_iconic || !is_vis {
+                            if !was_minimized {
+                                unsafe { win32::ShowWindow(ctrl_hwnd, win32::SW_HIDE) };
+                                was_minimized = true;
+                            }
+                        } else {
+                            if was_minimized {
+                                unsafe { win32::ShowWindow(ctrl_hwnd, win32::SW_SHOWNOACTIVATE) };
+                                was_minimized = false;
+                            }
+
+                            let mut rect: win32::RECT = unsafe { std::mem::zeroed() };
+                            if unsafe { win32::GetWindowRect(phira_hwnd, &mut rect) } != 0 {
+                                let changed = last_rect.map_or(true, |lr| {
+                                    lr.left != rect.left
+                                        || lr.top != rect.top
+                                        || lr.right != rect.right
+                                        || lr.bottom != rect.bottom
+                                });
+                                if changed {
+                                    last_rect = Some(rect);
+                                    let target_x = rect.right;
+                                    let target_y = rect.top;
+                                    let target_h = (rect.bottom - rect.top).max(400);
+
+                                    unsafe {
+                                        win32::SetWindowPos(
+                                            ctrl_hwnd,
+                                            0,
+                                            target_x,
+                                            target_y,
+                                            360,
+                                            target_h,
+                                            win32::SWP_NOACTIVATE | win32::SWP_NOZORDER,
+                                        );
+                                    }
+                                }
                             }
                         }
-                        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
                     }
                     let _ = ctrl_win_for_dock.close();
                 }
