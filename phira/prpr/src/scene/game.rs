@@ -11,7 +11,7 @@ use super::{
 use crate::{
     bin::BinaryReader,
     config::{Config, Mods},
-    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, Point, Resource, UIElement, Vector, PGR_FONT},
+    core::{copy_fbo, BadNote, Chart, ChartExtra, Effect, Point, Resource, UIElement, Vector},
     ext::{parse_time, screen_aspect, semi_white, RectExt, SafeTexture, ScaleType},
     fs::FileSystem,
     info::{ChartFormat, ChartInfo},
@@ -69,6 +69,7 @@ pub struct PreviewStatusReport {
     pub start: f64,
     pub end: f64,
     pub length: f64,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -88,6 +89,15 @@ pub enum PreviewAction {
     SetSpeed { speed: f32 },
     #[serde(rename = "set_range")]
     SetRange { start: f64, end: f64 },
+    #[serde(rename = "capture_frame")]
+    CaptureFrame {
+        #[serde(default)]
+        save_path: Option<String>,
+        #[serde(default)]
+        to_clipboard: bool,
+        #[serde(default)]
+        clipboard_filename: Option<String>,
+    },
     #[serde(rename = "exit")]
     Exit,
 }
@@ -204,6 +214,7 @@ pub struct GameScene {
     fps_last_frame_time: f64,
 
     dead: bool,
+    capture_request: Option<(Option<String>, bool, Option<String>)>,
 }
 
 macro_rules! reset {
@@ -399,6 +410,7 @@ impl GameScene {
             fps_last_frame_time: 0.0,
 
             dead: false,
+            capture_request: None,
         })
     }
 
@@ -465,7 +477,6 @@ impl GameScene {
             }
         }
         ui.alpha(res.alpha, |ui| {
-            ui.text("MAGIC BUGFIX TEXT").color(Color::new(0., 0., 0., 0.)).draw();
             if tm.now() as f32 - self.pause_first_time <= PAUSE_CLICK_INTERVAL {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
             }
@@ -473,7 +484,7 @@ impl GameScene {
             let margin = 0.03;
 
             let legacy_aui = !res.info.use_attach_ui_fix.unwrap_or_default();
-            let unit_h = if legacy_aui { ui.text("0").measure_using(&PGR_FONT).h } else { 0. };
+            let unit_h = if legacy_aui { ui.text("0").measure().h } else { 0. };
 
             // score
             let h = 0.07;
@@ -481,7 +492,7 @@ impl GameScene {
             let score_right = 1. - margin;
             let score = format!("{:07}", self.judge.score());
             let scale_point = legacy_aui.then(|| {
-                let ct = ui.text(&score).size(0.8).measure_using(&PGR_FONT).center();
+                let ct = ui.text(&score).size(0.8).measure().center();
                 (score_right - ct.x, score_top + ct.y)
             });
             self.chart
@@ -491,14 +502,14 @@ impl GameScene {
                         .anchor(1., 0.)
                         .size(0.8)
                         .color(c)
-                        .draw_using(&PGR_FONT);
+                        .draw();
                     if res.config.show_acc {
                         ui.text(format!("{:05.2}%", self.judge.real_time_accuracy() * 100.))
                             .pos(1. - margin, score_top + h)
                             .anchor(1., 0.)
                             .size(0.4)
                             .color(Color { a: c.a * 0.7, ..c })
-                            .draw_using(&PGR_FONT);
+                            .draw();
                     }
                 });
 
@@ -525,7 +536,7 @@ impl GameScene {
                                 .pos(0., combo_top)
                                 .anchor(0.5, 0.)
                                 .color(c)
-                                .draw_using(&PGR_FONT)
+                                .draw()
                                 .bottom()
                         });
                     let combo_top = btm + 0.01;
@@ -536,7 +547,7 @@ impl GameScene {
                                 .anchor(0.5, 0.)
                                 .size(0.4)
                                 .color(c)
-                                .draw_using(&PGR_FONT);
+                                .draw();
                         });
                 } else {
                     let combo = self.judge.combo().to_string();
@@ -548,7 +559,7 @@ impl GameScene {
                             .anchor(0.5, 0.5)
                             .size(1.0)
                             .color(c)
-                            .draw_using(&PGR_FONT)
+                            .draw()
                             .bottom()
                     });
                     let ct = ui.text("COMBO").size(0.4).measure().center();
@@ -559,12 +570,10 @@ impl GameScene {
                             .anchor(0.5, 0.5)
                             .size(0.4)
                             .color(c)
-                            .draw_using(&PGR_FONT);
+                            .draw();
                     });
                 }
             }
-            // magic to make score visible, refer to phira/src/rate.rs#L219
-            ui.text("").draw_using(&PGR_FONT);
             let lf = -1. + margin;
             let bt = -top - eps * 2.8 + (1. - p) * 0.4;
             let scale_point = legacy_aui.then(|| {
@@ -886,6 +895,8 @@ impl Scene for GameScene {
                                 self.chart.reset();
                                 self.judge.advance_to_with_score(&mut self.chart, time);
                                 self.res.judge_line_color = self.res.res_pack.info.color_perfect();
+                                self.state = State::Playing;
+                                self.res.alpha = 1.0;
                             }
                             PreviewAction::SetSpeed { speed } => {
                                 self.res.config.speed = speed;
@@ -910,6 +921,9 @@ impl Scene for GameScene {
                                 self.exercise_range.start = start;
                                 self.exercise_range.end = end;
                             }
+                            PreviewAction::CaptureFrame { save_path, to_clipboard, clipboard_filename } => {
+                                self.capture_request = Some((save_path, to_clipboard, clipboard_filename));
+                            }
                             PreviewAction::Exit => {
                                 self.should_exit = true;
                             }
@@ -928,6 +942,7 @@ impl Scene for GameScene {
                         start: self.exercise_range.start,
                         end: self.exercise_range.end,
                         length: self.res.track_length,
+                        name: self.res.info.name.clone(),
                     });
                 }
             }
@@ -1387,9 +1402,6 @@ impl Scene for GameScene {
         if res.config.particle {
             res.emitter.draw(dt);
         }
-        self.ui(ui, tm)?;
-        self.overlay_ui(ui, tm)?;
-
         if self.mode == GameMode::TweakOffset {
             push_camera_state();
             self.gl.quad_gl.viewport(None);
@@ -1435,7 +1447,48 @@ impl Scene for GameScene {
                         ..Default::default()
                     },
                 );
+                self.gl.flush();
+                if self.capture_request.is_some() {
+                    #[cfg(target_os = "windows")]
+                    unsafe {
+                        miniquad::gl::glBindFramebuffer(miniquad::gl::GL_FRAMEBUFFER, 0);
+                        miniquad::gl::glFinish();
+                    }
+                }
                 pop_camera_state();
+            }
+        }
+
+        self.gl.quad_gl.render_pass(self.res.camera.render_pass());
+        self.gl.quad_gl.viewport(Some(ui.viewport));
+        set_camera(&self.res.camera);
+
+        self.ui(ui, tm)?;
+        self.overlay_ui(ui, tm)?;
+        self.gl.flush();
+        if let Some((save_path, to_clipboard, clipboard_filename)) = self.capture_request.take() {
+            let img = get_screen_data();
+            if let Some(path) = save_path {
+                img.export_png(&path);
+            }
+            if to_clipboard {
+                let temp_path = {
+                    let temp_dir = std::env::temp_dir().join("phira_preview");
+                    let _ = std::fs::create_dir_all(&temp_dir);
+                    let fname = clipboard_filename.unwrap_or_else(|| {
+                        let clean: String = self.res.info.name.chars().map(|c| match c {
+                            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                            _ => c,
+                        }).collect();
+                        format!("{}.png", clean)
+                    });
+                    let path = temp_dir.join(fname);
+                    let path_str = path.to_string_lossy().to_string();
+                    img.export_png(&path_str);
+                    Some(path_str)
+                };
+                #[cfg(target_os = "windows")]
+                copy_image_to_windows_clipboard(&img, temp_path.as_deref());
             }
         }
         Ok(())
@@ -1468,5 +1521,127 @@ impl Scene for GameScene {
         } else {
             NextScene::None
         }
+    }
+}
+
+pub fn flip_image_vertical(img: &mut macroquad::prelude::Image) {
+    let w = img.width as usize;
+    let h = img.height as usize;
+    let row_bytes = w * 4;
+    for y in 0..(h / 2) {
+        let y2 = h - 1 - y;
+        let start1 = y * row_bytes;
+        let start2 = y2 * row_bytes;
+        for i in 0..row_bytes {
+            img.bytes.swap(start1 + i, start2 + i);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn copy_image_to_windows_clipboard(img: &macroquad::prelude::Image, file_path: Option<&str>) {
+    use std::ptr::null_mut;
+    extern "system" {
+        fn OpenClipboard(hwnd: *mut std::ffi::c_void) -> i32;
+        fn CloseClipboard() -> i32;
+        fn EmptyClipboard() -> i32;
+        fn SetClipboardData(format: u32, h_mem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        fn GlobalAlloc(flags: u32, bytes: usize) -> *mut std::ffi::c_void;
+        fn GlobalLock(h_mem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        fn GlobalUnlock(h_mem: *mut std::ffi::c_void) -> i32;
+    }
+
+    const CF_DIB: u32 = 8;
+    const CF_HDROP: u32 = 15;
+    const GMEM_MOVEABLE: u32 = 0x0002;
+
+    let w = img.width as usize;
+    let h = img.height as usize;
+    if w == 0 || h == 0 || img.bytes.len() < w * h * 4 {
+        return;
+    }
+
+    let header_size = 40;
+    let dib_size = header_size + w * h * 4;
+
+    unsafe {
+        if OpenClipboard(null_mut()) == 0 {
+            return;
+        }
+        EmptyClipboard();
+
+        // 1. Set CF_DIB (Bitmap for chat apps / image editors)
+        let h_mem = GlobalAlloc(GMEM_MOVEABLE, dib_size);
+        if !h_mem.is_null() {
+            let ptr = GlobalLock(h_mem) as *mut u8;
+            if !ptr.is_null() {
+                let ptr_u32 = ptr as *mut u32;
+                let ptr_i32 = ptr as *mut i32;
+                *ptr_u32.add(0) = 40;
+                *ptr_i32.add(1) = w as i32;
+                *ptr_i32.add(2) = h as i32;
+                std::ptr::write_unaligned(ptr.add(12) as *mut u16, 1);
+                std::ptr::write_unaligned(ptr.add(14) as *mut u16, 32);
+                *ptr_u32.add(4) = 0;
+                *ptr_u32.add(5) = (w * h * 4) as u32;
+                *ptr_i32.add(6) = 0;
+                *ptr_i32.add(7) = 0;
+                *ptr_u32.add(8) = 0;
+                *ptr_u32.add(9) = 0;
+
+                let pixel_dst = ptr.add(header_size);
+                for row in 0..h {
+                    let src_row = h - 1 - row;
+                    let src_offset = src_row * w * 4;
+                    let dst_offset = row * w * 4;
+                    for col in 0..w {
+                        let s = src_offset + col * 4;
+                        let d = dst_offset + col * 4;
+                        let r = img.bytes[s];
+                        let g = img.bytes[s + 1];
+                        let b = img.bytes[s + 2];
+                        let a = img.bytes[s + 3];
+                        *pixel_dst.add(d) = b;
+                        *pixel_dst.add(d + 1) = g;
+                        *pixel_dst.add(d + 2) = r;
+                        *pixel_dst.add(d + 3) = a;
+                    }
+                }
+
+                GlobalUnlock(h_mem);
+                SetClipboardData(CF_DIB, h_mem);
+            }
+        }
+
+        // 2. Set CF_HDROP (File Drop List for Windows Explorer file pasting to disk)
+        if let Some(path) = file_path {
+            let mut wide_chars: Vec<u16> = path.encode_utf16().collect();
+            wide_chars.push(0);
+            wide_chars.push(0); // Double null-terminated
+
+            let dropfiles_header_size = 20; // sizeof(DROPFILES)
+            let hdrop_size = dropfiles_header_size + wide_chars.len() * 2;
+            let h_hdrop = GlobalAlloc(GMEM_MOVEABLE, hdrop_size);
+            if !h_hdrop.is_null() {
+                let ptr = GlobalLock(h_hdrop) as *mut u8;
+                if !ptr.is_null() {
+                    let ptr_u32 = ptr as *mut u32;
+                    let ptr_i32 = ptr as *mut i32;
+                    *ptr_u32.add(0) = 20; // pFiles offset
+                    *ptr_i32.add(1) = 0;  // pt.x
+                    *ptr_i32.add(2) = 0;  // pt.y
+                    *ptr_i32.add(3) = 0;  // fNC
+                    *ptr_i32.add(4) = 1;  // fWide = TRUE (Unicode)
+
+                    let str_dst = ptr.add(dropfiles_header_size) as *mut u16;
+                    std::ptr::copy_nonoverlapping(wide_chars.as_ptr(), str_dst, wide_chars.len());
+
+                    GlobalUnlock(h_hdrop);
+                    SetClipboardData(CF_HDROP, h_hdrop);
+                }
+            }
+        }
+
+        CloseClipboard();
     }
 }

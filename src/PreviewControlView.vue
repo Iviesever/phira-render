@@ -202,9 +202,43 @@
       </div>
     </div>
 
+    <!-- Frame Capture & Export Card -->
+    <div class="card capture-card">
+      <div class="card-header">
+        <span class="label">当前帧图像捕获</span>
+        <span class="value-highlight">{{ fmtTime(displayTime) }}</span>
+      </div>
+      <div class="capture-actions-row">
+        <button
+          class="capture-btn copy-btn"
+          :class="{ success: copySuccess }"
+          title="复制当前画面截图到系统剪贴板 (C)"
+          @click="copyCurrentFrame"
+        >
+          <i class="mdi" :class="copySuccess ? 'mdi-check-bold' : 'mdi-content-copy'"></i>
+          <span>{{ copySuccess ? '已复制到剪贴板！' : '复制当前帧图片' }}</span>
+          <kbd>C</kbd>
+        </button>
+
+        <button
+          class="capture-btn export-btn"
+          :class="{ success: exportSuccess }"
+          title="保存当前画面为 PNG 图片 (S)"
+          @click="exportCurrentFrame"
+        >
+          <i class="mdi" :class="exportSuccess ? 'mdi-check-bold' : 'mdi-download'"></i>
+          <span>{{ exportSuccess ? '已保存！' : '导出帧到...' }}</span>
+          <kbd>S</kbd>
+        </button>
+      </div>
+      <div v-if="captureNotice" class="capture-notice-bar">
+        {{ captureNotice }}
+      </div>
+    </div>
+
     <!-- Shortcut Hint Footer -->
     <div class="footer-tips">
-      <span>快捷键：<kbd>Space</kbd> 暂停/继续 · <kbd>R</kbd> 重播 · <kbd>←</kbd><kbd>→</kbd> 步进 1s</span>
+      <span>快捷键：<kbd>Space</kbd> 暂停/继续 · <kbd>R</kbd> 重播 · <kbd>C</kbd> 复制帧 · <kbd>S</kbd> 导出帧 · <kbd>←</kbd><kbd>→</kbd> 步进 1s</span>
       <div v-if="lastSentCmd" style="font-size: 11px; color: #6ee7b7; margin-top: 3px; font-family: monospace;">
         📡 {{ lastSentCmd }}
       </div>
@@ -219,6 +253,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { save } from '@tauri-apps/api/dialog';
 
 interface PreviewStatus {
   time: number;
@@ -227,6 +262,7 @@ interface PreviewStatus {
   start: number;
   end: number;
   length: number;
+  name?: string;
 }
 
 const status = ref<PreviewStatus>({
@@ -236,7 +272,13 @@ const status = ref<PreviewStatus>({
   start: 0,
   end: 180,
   length: 180,
+  name: '',
 });
+
+// Capture state
+const copySuccess = ref(false);
+const exportSuccess = ref(false);
+const captureNotice = ref('');
 
 // Drag state
 type DragTarget = 'cursor' | 'start' | 'end' | null;
@@ -560,6 +602,60 @@ function resetRange() {
   setRangeTo(0, status.value.length);
 }
 
+// Frame Capture Methods
+async function copyCurrentFrame() {
+  try {
+    const songName = (status.value.name || 'frame').replace(/[\\/:*?"<>|]/g, '_');
+    const curTimeStr = fmtTime(status.value.time).replace(':', '_').replace('.', '_');
+    const fname = `${songName}_${curTimeStr}.png`;
+    await sendCmd('capture_frame', {
+      to_clipboard: true,
+      save_path: null,
+      clipboard_filename: fname,
+    });
+    copySuccess.value = true;
+    captureNotice.value = '已复制当前帧图像至系统剪贴板！可直接粘贴 (Ctrl+V)';
+    setTimeout(() => {
+      copySuccess.value = false;
+      captureNotice.value = '';
+    }, 3500);
+  } catch (e: any) {
+    console.error('Failed to copy frame:', e);
+    cmdError.value = String(e?.message || e);
+  }
+}
+
+async function exportCurrentFrame() {
+  try {
+    const curTimeStr = fmtTime(status.value.time).replace(':', '_').replace('.', '_');
+    const songName = (status.value.name || 'frame').replace(/[\\/:*?"<>|]/g, '_');
+    const defaultPath = `${songName}_${curTimeStr}.png`;
+    const selected = await save({
+      defaultPath,
+      filters: [{
+        name: 'PNG Image',
+        extensions: ['png']
+      }]
+    });
+    if (selected) {
+      await sendCmd('capture_frame', {
+        save_path: selected,
+        to_clipboard: false,
+        clipboard_filename: null,
+      });
+      exportSuccess.value = true;
+      captureNotice.value = `已成功导出当前帧至: ${selected}`;
+      setTimeout(() => {
+        exportSuccess.value = false;
+        captureNotice.value = '';
+      }, 4000);
+    }
+  } catch (e: any) {
+    console.error('Failed to export frame:', e);
+    cmdError.value = String(e?.message || e);
+  }
+}
+
 // Key shortcuts
 function onKeyDown(e: KeyboardEvent) {
   if (editingTime.value) return;
@@ -569,6 +665,12 @@ function onKeyDown(e: KeyboardEvent) {
   } else if (e.code === 'KeyR') {
     e.preventDefault();
     sendCmd('replay');
+  } else if (e.code === 'KeyC') {
+    e.preventDefault();
+    copyCurrentFrame();
+  } else if (e.code === 'KeyS') {
+    e.preventDefault();
+    exportCurrentFrame();
   } else if (e.code === 'ArrowLeft') {
     e.preventDefault();
     seekDelta(-1);
@@ -1169,6 +1271,87 @@ onUnmounted(() => {
   background: rgba(88, 166, 255, 0.12);
   border-color: rgba(88, 166, 255, 0.3);
   color: #58a6ff;
+}
+
+/* Capture Card */
+.capture-card {
+  gap: 8px;
+}
+
+.capture-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.capture-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #21262d;
+  color: #e6edf3;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.capture-btn:hover {
+  background: #30363d;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.capture-btn.copy-btn {
+  border-color: rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+}
+
+.capture-btn.copy-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+}
+
+.capture-btn.export-btn {
+  border-color: rgba(168, 85, 247, 0.3);
+  background: rgba(168, 85, 247, 0.1);
+  color: #c084fc;
+}
+
+.capture-btn.export-btn:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: #c084fc;
+}
+
+.capture-btn.success {
+  background: rgba(35, 134, 54, 0.3) !important;
+  border-color: #3fb950 !important;
+  color: #3fb950 !important;
+}
+
+.capture-btn kbd {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  opacity: 0.8;
+}
+
+.capture-notice-bar {
+  font-size: 11px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  text-align: center;
+  word-break: break-all;
 }
 
 /* Footer Tips */

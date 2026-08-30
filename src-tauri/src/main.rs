@@ -93,6 +93,13 @@ pub fn build_conf() -> macroquad::window::Conf {
                 height = h;
             }
         }
+    } else if args.len() >= 7 && args.get(1).map(|s| s.as_str()) == Some("frame") {
+        if let (Ok(w), Ok(h)) = (args[5].parse::<i32>(), args[6].parse::<i32>()) {
+            if w > 0 && h > 0 {
+                width = w;
+                height = h;
+            }
+        }
     } else {
         #[cfg(target_os = "windows")]
         {
@@ -107,27 +114,33 @@ pub fn build_conf() -> macroquad::window::Conf {
         }
     }
 
+    let subcmd = std::env::args().skip(1).next();
+    let is_gui = subcmd.as_deref() == Some("preview") || subcmd.as_deref() == Some("frame");
+
     macroquad::window::Conf {
         window_title: "Phira".to_string(),
         window_width: width,
         window_height: height,
         window_resizable: true,
         high_dpi: false,
-        headless: std::env::args().skip(1).next().as_deref() != Some("preview"),
+        headless: !is_gui,
         ..Default::default()
     }
 }
 
 async fn run_wrapped(f: impl Future<Output = Result<()>>) -> ! {
     if let Err(err) = f.await {
+        ipc::log(&format!("[RUN_WRAPPED ERROR] {:?}", err));
         eprintln!("{err:?}");
         std::process::exit(1);
     }
+    ipc::log("[RUN_WRAPPED SUCCESS] exit 0");
     std::process::exit(0);
 }
 
 #[macroquad::main(build_conf)]
 async fn main() -> Result<()> {
+    ipc::log(&format!("[MAIN ENTRY] args: {:?}", std::env::args().collect::<Vec<_>>()));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()
@@ -142,6 +155,9 @@ async fn main() -> Result<()> {
             }
             Some("preview") => {
                 run_wrapped(preview::main()).await;
+            }
+            Some("frame") => {
+                run_wrapped(preview::frame_cli()).await;
             }
             cmd => {
                 eprintln!("Unknown subcommand: {cmd:?}");

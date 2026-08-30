@@ -15,7 +15,7 @@ tauri-build = { version = "1.4.0", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.4.0", features = [ "dialog-message", "system-tray", "shell-open", "fs-read-file", "protocol-asset", "dialog-open"] }
+tauri = { version = "1.4.0", features = [ "dialog-message", "system-tray", "shell-open", "fs-read-file", "protocol-asset", "dialog-open", "dialog-save"] }
 
 anyhow = { version = "1.0.70", features = ["backtrace"] }
 macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "b2eab29", default-features = false }

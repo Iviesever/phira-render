@@ -13,7 +13,8 @@
     "allowlist": {
       "dialog": {
         "message": true,
-        "open": true
+        "open": true,
+        "save": true
       },
       "fs": {
         "readFile": true,

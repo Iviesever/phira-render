@@ -15,7 +15,7 @@ use prpr::{
 use std::io::{BufRead, Write};
 use std::sync::mpsc::channel;
 
-struct BaseScene(Option<NextScene>, bool);
+struct BaseScene(Option<NextScene>, bool, bool);
 impl Scene for BaseScene {
     fn on_result(&mut self, _tm: &mut TimeManager, result: Box<dyn std::any::Any>) -> Result<()> {
         show_error(
@@ -25,6 +25,9 @@ impl Scene for BaseScene {
                 .context("加载谱面失败"),
         );
         self.1 = true;
+        if self.2 {
+            self.0 = Some(NextScene::Exit);
+        }
         Ok(())
     }
     fn enter(&mut self, _tm: &mut TimeManager, _target: Option<RenderTarget>) -> Result<()> {
@@ -145,6 +148,7 @@ pub async fn main() -> Result<()> {
                 .await?,
             ))),
             false,
+            false,
         )),
         ctm,
         None,
@@ -160,6 +164,134 @@ pub async fn main() -> Result<()> {
 
         next_frame().await;
     }
+
+    Ok(())
+}
+
+pub async fn frame_cli() -> Result<()> {
+    use anyhow::Context;
+    use std::ops::DerefMut;
+
+    crate::ipc::log("[FRAME_CLI] entered");
+    let args: Vec<String> = std::env::args().collect();
+    crate::ipc::log(&format!("[FRAME_CLI] args: {:?}", args));
+    if args.len() < 5 {
+        crate::ipc::log("[FRAME_CLI] insufficient args");
+        eprintln!("Usage: phira-render frame <chart_path> <time_in_seconds> <output_png_path> [width] [height]");
+        std::process::exit(1);
+    }
+
+    let exe_dir = std::env::current_exe()?.parent().unwrap().to_owned();
+    let asset_path = if exe_dir.join("assets").exists() {
+        exe_dir.join("assets")
+    } else if std::path::Path::new("src-tauri/assets").exists() {
+        std::path::PathBuf::from("src-tauri/assets")
+    } else {
+        exe_dir.clone()
+    };
+    crate::ipc::log(&format!("[FRAME_CLI] asset_path: {:?}", asset_path));
+    set_pc_assets_folder(&asset_path.display().to_string());
+
+    let chart_path = std::path::PathBuf::from(&args[2]);
+    let target_time: f64 = args[3]
+        .parse()
+        .with_context(|| format!("Invalid frame time: {}", args[3]))?;
+    if !target_time.is_finite() {
+        anyhow::bail!("Frame time must be finite");
+    }
+    let output_path = std::path::PathBuf::from(&args[4]);
+    crate::ipc::log(&format!("[FRAME_CLI] chart_path: {:?}, time: {}, output: {:?}", chart_path, target_time, output_path));
+
+    let mut fs_box = fs::fs_from_file(&chart_path)
+        .with_context(|| format!("Failed to load chart from {:?}", chart_path))?;
+    let info = fs::load_info(fs_box.deref_mut())
+        .await
+        .with_context(|| "Failed to load chart info")?;
+    let mut config = Config::default();
+    config.mods |= Mods::AUTOPLAY;
+    config.sample_count = 1;
+
+    let (action_tx, action_rx) = channel::<PreviewAction>();
+    let (status_tx, status_rx) = channel::<PreviewStatusReport>();
+    set_preview_channels(action_rx, status_tx);
+
+    let font = FontArc::try_from_vec(load_file("font.ttf").await?)?;
+    let mut painter = TextPainter::new(font, None);
+
+    let ctm = TimeManager::from_config(&config);
+    let mut main = Main::new(
+        Box::new(BaseScene(
+            Some(NextScene::Overlay(Box::new(
+                LoadingScene::new(
+                    GameMode::Exercise,
+                    info,
+                    config,
+                    fs_box,
+                    None,
+                    None,
+                    Some(Box::new(|_, res, _| {
+                        res.config.mods.insert(Mods::AUTOPLAY);
+                    })),
+                    None,
+                    None,
+                )
+                .await?,
+            ))),
+            false,
+            true,
+        )),
+        ctm,
+        None,
+    )
+    .await?;
+    crate::ipc::log("[FRAME_CLI] Main created with LoadingScene, starting loop");
+
+    let mut seeked = false;
+    let mut captured = false;
+    let mut capture_frame = 0;
+
+    'app: loop {
+        main.update()?;
+        if main.should_exit() {
+            anyhow::bail!("Failed to load chart");
+        }
+        main.render(&mut painter)?;
+
+        while let Ok(status) = status_rx.try_recv() {
+            if !seeked {
+                crate::ipc::log(&format!("[FRAME_CLI] seeking to {}", target_time));
+                let _ = action_tx.send(PreviewAction::Pause);
+                let _ = action_tx.send(PreviewAction::Seek { time: target_time });
+                seeked = true;
+            } else if !captured && (status.time - target_time).abs() < 0.2 {
+                capture_frame += 1;
+                if capture_frame >= 2 {
+                    crate::ipc::log(&format!("[FRAME_CLI] sending capture to {:?}", output_path));
+                    let _ = action_tx.send(PreviewAction::CaptureFrame {
+                        save_path: Some(output_path.to_string_lossy().to_string()),
+                        to_clipboard: false,
+                        clipboard_filename: None,
+                    });
+                    captured = true;
+                }
+            } else if captured {
+                capture_frame += 1;
+                if capture_frame >= 4 {
+                    crate::ipc::log("[FRAME_CLI] capture complete, breaking");
+                    break 'app;
+                }
+            }
+        }
+
+        next_frame().await;
+    }
+
+    crate::ipc::log(&format!("[FRAME_CLI] done! saved to {:?}", output_path));
+    println!(
+        "{{\"status\":\"ok\",\"time\":{},\"output\":{:?}}}",
+        target_time,
+        output_path.display().to_string()
+    );
 
     Ok(())
 }
