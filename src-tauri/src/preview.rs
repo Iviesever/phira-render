@@ -57,25 +57,34 @@ pub async fn main() -> Result<()> {
 
     // Spawn background thread to read commands from stdin
     std::thread::spawn(move || {
+        crate::ipc::log("[PREVIEW CHILD STDIN READER] thread started");
         let stdin = std::io::stdin();
         let mut handle = stdin.lock();
         let mut buf = String::new();
         while let Ok(n) = handle.read_line(&mut buf) {
             if n == 0 {
+                crate::ipc::log("[PREVIEW CHILD STDIN READER] EOF on stdin");
                 break;
             }
             let trimmed = buf.trim();
             if !trimmed.is_empty() {
-                if let Ok(action) = serde_json::from_str::<PreviewAction>(trimmed) {
-                    let is_exit = matches!(action, PreviewAction::Exit);
-                    let _ = action_tx.send(action);
-                    if is_exit {
-                        break;
+                crate::ipc::log(&format!("[PREVIEW CHILD STDIN READER] got line: {}", trimmed));
+                match serde_json::from_str::<PreviewAction>(trimmed) {
+                    Ok(action) => {
+                        let is_exit = matches!(action, PreviewAction::Exit);
+                        let _ = action_tx.send(action);
+                        if is_exit {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        crate::ipc::log(&format!("[PREVIEW CHILD STDIN READER] parse error: {:?}", e));
                     }
                 }
             }
             buf.clear();
         }
+        crate::ipc::log("[PREVIEW CHILD STDIN READER] thread exit");
     });
 
     // Spawn background thread to output status to stdout
@@ -83,13 +92,16 @@ pub async fn main() -> Result<()> {
         let mut last_report_time = std::time::Instant::now();
         let mut last_status: Option<PreviewStatusReport> = None;
         let mut stdout = std::io::stdout().lock();
-        while let Ok(status) = status_rx.recv() {
+        while let Ok(mut status) = status_rx.recv() {
+            while let Ok(newer) = status_rx.try_recv() {
+                status = newer;
+            }
             let should_send = last_status.as_ref().map_or(true, |last| {
                 last.paused != status.paused
                     || (last.speed - status.speed).abs() > 0.001
                     || (last.start - status.start).abs() > 0.01
                     || (last.end - status.end).abs() > 0.01
-                    || last_report_time.elapsed().as_millis() >= 50
+                    || last_report_time.elapsed().as_millis() >= 35
             });
             if should_send {
                 last_report_time = std::time::Instant::now();

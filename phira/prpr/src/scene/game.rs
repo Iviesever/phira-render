@@ -826,6 +826,10 @@ impl Scene for GameScene {
             if let Ok(rx_guard) = PREVIEW_ACTION_RX.lock() {
                 if let Some(rx) = rx_guard.as_ref() {
                     while let Ok(action) = rx.try_recv() {
+                        use std::io::Write;
+                        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("d:\\program\\phira_render\\ipc.log") {
+                            let _ = writeln!(f, "[GAMESCENE UPDATE] action: {:?}", action);
+                        }
                         match action {
                             PreviewAction::Pause => {
                                 tm.pause();
@@ -861,17 +865,11 @@ impl Scene for GameScene {
                                 tm.seek_to(self.exercise_range.start);
                             }
                             PreviewAction::Seek { time } => {
-                                let was_paused = tm.paused();
                                 tm.seek_to(time);
                                 self.music.seek_to(time).ok();
-                                if was_paused {
-                                    tm.pause();
-                                    self.music.pause().ok();
-                                }
                                 self.bad_notes.clear();
                                 self.judge.reset();
                                 self.chart.reset();
-                                self.judge.advance_to(&mut self.chart, time);
                                 self.res.judge_line_color = self.res.res_pack.info.color_perfect();
                             }
                             PreviewAction::SetSpeed { speed } => {

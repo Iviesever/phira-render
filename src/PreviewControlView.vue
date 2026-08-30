@@ -205,6 +205,12 @@
     <!-- Shortcut Hint Footer -->
     <div class="footer-tips">
       <span>快捷键：<kbd>Space</kbd> 暂停/继续 · <kbd>R</kbd> 重播 · <kbd>←</kbd><kbd>→</kbd> 步进 1s</span>
+      <div v-if="lastSentCmd" style="font-size: 11px; color: #6ee7b7; margin-top: 3px; font-family: monospace;">
+        📡 {{ lastSentCmd }}
+      </div>
+      <div v-if="cmdError" style="font-size: 11px; color: #f87171; margin-top: 3px; font-weight: bold;">
+        ❌ 下发异常: {{ cmdError }}
+      </div>
     </div>
   </div>
 </template>
@@ -245,6 +251,8 @@ const timeInputRef = ref<HTMLInputElement>();
 
 let unlistenStatus: UnlistenFn | null = null;
 let throttleTimer: any = null;
+let ignoreTimeUntil = 0;
+let ignoreRangeUntil = 0;
 
 const speedText = computed(() => status.value.speed.toFixed(2));
 
@@ -306,14 +314,33 @@ function parseTime(str: string): number | null {
   return null;
 }
 
+const lastSentCmd = ref('');
+const cmdError = ref('');
+
 async function sendCmd(action: string, payload: any = {}) {
+  const cmdStr = JSON.stringify({ action, ...payload });
+  lastSentCmd.value = cmdStr;
+  cmdError.value = '';
   try {
-    await invoke('send_preview_command', {
-      cmd: JSON.stringify({ action, ...payload }),
-    });
-  } catch (err) {
+    await invoke('send_preview_command', { payload: cmdStr });
+  } catch (err: any) {
+    cmdError.value = String(err?.message || err);
     console.error('Failed to send command:', err);
   }
+}
+
+function seekTo(t: number) {
+  const clamped = Math.max(0, Math.min(t, status.value.length));
+  status.value.time = clamped;
+  ignoreTimeUntil = Date.now() + 1000;
+  sendCmd('seek', { time: clamped });
+}
+
+function setRangeTo(start: number, end: number) {
+  status.value.start = start;
+  status.value.end = end;
+  ignoreRangeUntil = Date.now() + 1000;
+  sendCmd('set_range', { start, end });
 }
 
 function throttledSeek(time: number) {
@@ -342,9 +369,7 @@ function onSpeedSlider(e: Event) {
 }
 
 function seekDelta(delta: number) {
-  const t = Math.max(0, Math.min(status.value.time + delta, status.value.length));
-  status.value.time = t;
-  sendCmd('seek', { time: t });
+  seekTo(status.value.time + delta);
 }
 
 // Inline edit time
@@ -362,8 +387,7 @@ function finishEditTime() {
   editingTime.value = false;
   const t = parseTime(editTimeStr.value);
   if (t !== null && t >= 0 && t <= status.value.length) {
-    status.value.time = t;
-    sendCmd('seek', { time: t });
+    seekTo(t);
   }
 }
 
@@ -394,6 +418,7 @@ function onTrackMouseDown(e: MouseEvent) {
     dragTarget.value = 'cursor';
     draggingTime.value = t;
     status.value.time = t;
+    ignoreTimeUntil = Date.now() + 1000;
     sendCmd('seek', { time: t });
     window.addEventListener('mousemove', onWindowMouseMove);
     window.addEventListener('mouseup', onWindowMouseUp);
@@ -407,6 +432,7 @@ function onTrackTouchStart(e: TouchEvent) {
   dragTarget.value = 'cursor';
   draggingTime.value = t;
   status.value.time = t;
+  ignoreTimeUntil = Date.now() + 1000;
   sendCmd('seek', { time: t });
   window.addEventListener('touchmove', onWindowTouchMove, { passive: false });
   window.addEventListener('touchend', onWindowTouchEnd);
@@ -416,6 +442,8 @@ function startPinDrag(target: DragTarget, e: MouseEvent) {
   e.preventDefault();
   dragTarget.value = target;
   draggingTime.value = target === 'start' ? status.value.start : target === 'end' ? status.value.end : status.value.time;
+  if (target === 'cursor') ignoreTimeUntil = Date.now() + 1000;
+  if (target === 'start' || target === 'end') ignoreRangeUntil = Date.now() + 1000;
   window.addEventListener('mousemove', onWindowMouseMove);
   window.addEventListener('mouseup', onWindowMouseUp);
 }
@@ -424,6 +452,8 @@ function startPinTouchDrag(target: DragTarget, e: TouchEvent) {
   e.preventDefault();
   dragTarget.value = target;
   draggingTime.value = target === 'start' ? status.value.start : target === 'end' ? status.value.end : status.value.time;
+  if (target === 'cursor') ignoreTimeUntil = Date.now() + 1000;
+  if (target === 'start' || target === 'end') ignoreRangeUntil = Date.now() + 1000;
   window.addEventListener('touchmove', onWindowTouchMove, { passive: false });
   window.addEventListener('touchend', onWindowTouchEnd);
 }
@@ -445,13 +475,16 @@ function applyDragTime(t: number) {
   draggingTime.value = t;
   if (dragTarget.value === 'cursor') {
     status.value.time = t;
+    ignoreTimeUntil = Date.now() + 1000;
     throttledSeek(t);
   } else if (dragTarget.value === 'start') {
-    const st = Math.min(t, status.value.end - 0.5);
-    status.value.start = Math.max(0, st);
+    const st = Math.max(0, Math.min(t, status.value.end - 0.5));
+    status.value.start = st;
+    ignoreRangeUntil = Date.now() + 1000;
   } else if (dragTarget.value === 'end') {
-    const en = Math.max(t, status.value.start + 0.5);
-    status.value.end = Math.min(status.value.length, en);
+    const en = Math.min(status.value.length, Math.max(t, status.value.start + 0.5));
+    status.value.end = en;
+    ignoreRangeUntil = Date.now() + 1000;
   }
 }
 
@@ -474,12 +507,23 @@ function finishDrag(clientX: number) {
     clearTimeout(throttleTimer);
     throttleTimer = null;
   }
+  const currentTarget = dragTarget.value;
   const t = clientX ? getTimeFromEvent(clientX) : (draggingTime.value ?? status.value.time);
-  if (dragTarget.value === 'cursor') {
-    status.value.time = t;
-    sendCmd('seek', { time: t });
-  } else if (dragTarget.value === 'start' || dragTarget.value === 'end') {
-    sendCmd('set_range', { start: status.value.start, end: status.value.end });
+  if (currentTarget === 'cursor') {
+    const clamped = Math.max(0, Math.min(t, status.value.length));
+    status.value.time = clamped;
+    ignoreTimeUntil = Date.now() + 1000;
+    sendCmd('seek', { time: clamped });
+  } else if (currentTarget === 'start') {
+    const st = Math.max(0, Math.min(t, status.value.end - 0.5));
+    status.value.start = st;
+    ignoreRangeUntil = Date.now() + 1000;
+    sendCmd('set_range', { start: st, end: status.value.end });
+  } else if (currentTarget === 'end') {
+    const en = Math.min(status.value.length, Math.max(t, status.value.start + 0.5));
+    status.value.end = en;
+    ignoreRangeUntil = Date.now() + 1000;
+    sendCmd('set_range', { start: status.value.start, end: en });
   }
   dragTarget.value = null;
   draggingTime.value = null;
@@ -489,39 +533,31 @@ function finishDrag(clientX: number) {
 function setStartToCurrent() {
   const st = status.value.time;
   const en = Math.max(st + 0.5, status.value.end);
-  status.value.start = st;
-  status.value.end = en;
-  sendCmd('set_range', { start: st, end: en });
+  setRangeTo(st, en);
 }
 
 function setEndToCurrent() {
   const en = status.value.time;
   const st = Math.min(en - 0.5, status.value.start);
-  status.value.start = st;
-  status.value.end = en;
-  sendCmd('set_range', { start: st, end: en });
+  setRangeTo(st, en);
 }
 
 function onStartChange(e: Event) {
   const t = parseTime((e.target as HTMLInputElement).value);
   if (t !== null && t >= 0 && t < status.value.end) {
-    status.value.start = t;
-    sendCmd('set_range', { start: t, end: status.value.end });
+    setRangeTo(t, status.value.end);
   }
 }
 
 function onEndChange(e: Event) {
   const t = parseTime((e.target as HTMLInputElement).value);
   if (t !== null && t > status.value.start && t <= status.value.length) {
-    status.value.end = t;
-    sendCmd('set_range', { start: status.value.start, end: t });
+    setRangeTo(status.value.start, t);
   }
 }
 
 function resetRange() {
-  status.value.start = 0;
-  status.value.end = status.value.length;
-  sendCmd('set_range', { start: 0, end: status.value.length });
+  setRangeTo(0, status.value.length);
 }
 
 // Key shortcuts
@@ -550,13 +586,38 @@ onMounted(async () => {
   unlistenStatus = await listen<string>('preview-status', (event) => {
     try {
       const data: Partial<PreviewStatus> = JSON.parse(event.payload);
+      const now = Date.now();
+
       if (dragTarget.value === 'cursor') {
         delete data.time;
-      } else if (dragTarget.value === 'start') {
-        delete data.start;
-      } else if (dragTarget.value === 'end') {
-        delete data.end;
+      } else if (now < ignoreTimeUntil) {
+        if (data.time !== undefined && Math.abs(data.time - status.value.time) < 0.15) {
+          ignoreTimeUntil = 0;
+        } else {
+          delete data.time;
+        }
       }
+
+      if (dragTarget.value === 'start') {
+        delete data.start;
+      } else if (now < ignoreRangeUntil) {
+        if (data.start !== undefined && Math.abs(data.start - status.value.start) < 0.05) {
+          // confirmed
+        } else {
+          delete data.start;
+        }
+      }
+
+      if (dragTarget.value === 'end') {
+        delete data.end;
+      } else if (now < ignoreRangeUntil) {
+        if (data.end !== undefined && Math.abs(data.end - status.value.end) < 0.05) {
+          // confirmed
+        } else {
+          delete data.end;
+        }
+      }
+
       status.value = { ...status.value, ...data };
     } catch (e) {
       // ignore

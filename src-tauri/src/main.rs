@@ -383,13 +383,17 @@ static PREVIEW_CHILD_STDIN: std::sync::Mutex<Option<tokio::sync::mpsc::Unbounded
     std::sync::Mutex::new(None);
 
 #[tauri::command]
-fn send_preview_command(cmd: String) -> Result<(), InvokeError> {
+fn send_preview_command(payload: String) {
+    ipc::log(&format!("[MAIN send_preview_command] sending: {}", payload));
     if let Ok(guard) = PREVIEW_CHILD_STDIN.lock() {
         if let Some(tx) = guard.as_ref() {
-            let _ = tx.send(cmd);
+            if let Err(e) = tx.send(payload) {
+                ipc::log(&format!("[MAIN send_preview_command] send error: {:?}", e));
+            }
+        } else {
+            ipc::log("[MAIN send_preview_command] PREVIEW_CHILD_STDIN is None!");
         }
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -411,6 +415,7 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
         stdin
             .write_all(format!("{}\n", serde_json::to_string(&params)?).as_bytes())
             .await?;
+        stdin.flush().await?;
 
         let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         if let Ok(mut guard) = PREVIEW_CHILD_STDIN.lock() {
@@ -418,10 +423,19 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
         }
 
         tokio::spawn(async move {
+            ipc::log("[MAIN CHILD STDIN WRITER] thread started");
             while let Some(cmd) = cmd_rx.recv().await {
-                let _ = stdin.write_all(format!("{}\n", cmd).as_bytes()).await;
-                let _ = stdin.flush().await;
+                ipc::log(&format!("[MAIN CHILD STDIN WRITER] writing: {}", cmd));
+                if let Err(e) = stdin.write_all(format!("{}\n", cmd).as_bytes()).await {
+                    ipc::log(&format!("[MAIN CHILD STDIN WRITER] write_all error: {:?}", e));
+                    break;
+                }
+                if let Err(e) = stdin.flush().await {
+                    ipc::log(&format!("[MAIN CHILD STDIN WRITER] flush error: {:?}", e));
+                    break;
+                }
             }
+            ipc::log("[MAIN CHILD STDIN WRITER] loop finished!");
         });
 
         let app_handle = window.app_handle();
