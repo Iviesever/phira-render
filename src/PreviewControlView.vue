@@ -244,6 +244,7 @@ const editTimeStr = ref('');
 const timeInputRef = ref<HTMLInputElement>();
 
 let unlistenStatus: UnlistenFn | null = null;
+let throttleTimer: any = null;
 
 const speedText = computed(() => status.value.speed.toFixed(2));
 
@@ -256,8 +257,7 @@ const displayTime = computed(() => {
 
 const curPercent = computed(() => {
   const len = Math.max(status.value.length, 1);
-  const t = displayTime.value;
-  return Math.min(Math.max((t / len) * 100, 0), 100);
+  return Math.min(Math.max((displayTime.value / len) * 100, 0), 100);
 });
 
 const startPercent = computed(() => {
@@ -306,7 +306,6 @@ function parseTime(str: string): number | null {
   return null;
 }
 
-let pendingCmdTimeout: any = null;
 async function sendCmd(action: string, payload: any = {}) {
   try {
     await invoke('send_preview_command', {
@@ -317,12 +316,12 @@ async function sendCmd(action: string, payload: any = {}) {
   }
 }
 
-function throttleSeek(time: number) {
-  if (pendingCmdTimeout) return;
-  pendingCmdTimeout = setTimeout(() => {
-    pendingCmdTimeout = null;
+function throttledSeek(time: number) {
+  if (throttleTimer) return;
+  throttleTimer = setTimeout(() => {
+    throttleTimer = null;
     sendCmd('seek', { time });
-  }, 30);
+  }, 35);
 }
 
 function setSpeed(val: number) {
@@ -387,7 +386,6 @@ function onTrackMouseDown(e: MouseEvent) {
   const startRatio = status.value.start / len;
   const endRatio = status.value.end / len;
 
-  // If clicked close to pin A or B, drag that pin; otherwise drag cursor & seek
   if (Math.abs(clickRatio - startRatio) < 0.03) {
     startPinDrag('start', e);
   } else if (Math.abs(clickRatio - endRatio) < 0.03) {
@@ -447,7 +445,7 @@ function applyDragTime(t: number) {
   draggingTime.value = t;
   if (dragTarget.value === 'cursor') {
     status.value.time = t;
-    throttleSeek(t);
+    throttledSeek(t);
   } else if (dragTarget.value === 'start') {
     const st = Math.min(t, status.value.end - 0.5);
     status.value.start = Math.max(0, st);
@@ -472,7 +470,11 @@ function onWindowTouchEnd(e: TouchEvent) {
 
 function finishDrag(clientX: number) {
   if (!dragTarget.value) return;
-  const t = clientX ? getTimeFromEvent(clientX) : (draggingTime.value ?? 0);
+  if (throttleTimer) {
+    clearTimeout(throttleTimer);
+    throttleTimer = null;
+  }
+  const t = clientX ? getTimeFromEvent(clientX) : (draggingTime.value ?? status.value.time);
   if (dragTarget.value === 'cursor') {
     status.value.time = t;
     sendCmd('seek', { time: t });
@@ -547,19 +549,15 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeyDown);
   unlistenStatus = await listen<string>('preview-status', (event) => {
     try {
-      const data = JSON.parse(event.payload);
+      const data: Partial<PreviewStatus> = JSON.parse(event.payload);
       if (dragTarget.value === 'cursor') {
-        const { time, ...rest } = data;
-        status.value = { ...status.value, ...rest };
+        delete data.time;
       } else if (dragTarget.value === 'start') {
-        const { start, ...rest } = data;
-        status.value = { ...status.value, ...rest };
+        delete data.start;
       } else if (dragTarget.value === 'end') {
-        const { end, ...rest } = data;
-        status.value = { ...status.value, ...rest };
-      } else {
-        status.value = { ...status.value, ...data };
+        delete data.end;
       }
+      status.value = { ...status.value, ...data };
     } catch (e) {
       // ignore
     }
@@ -567,6 +565,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (throttleTimer) clearTimeout(throttleTimer);
   window.removeEventListener('keydown', onKeyDown);
   if (unlistenStatus) unlistenStatus();
 });

@@ -99,7 +99,9 @@ impl TimeManager {
     }
 
     pub fn pause(&mut self) {
-        self.pause_time = Some(self.real_time());
+        if self.pause_time.is_none() {
+            self.pause_time = Some(self.real_time());
+        }
     }
 
     pub fn resume(&mut self) {
