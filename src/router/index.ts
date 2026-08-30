@@ -45,6 +45,10 @@ import { i18n } from '../main';
 import { setTitle } from '../common';
 
 router.afterEach((to) => {
+  if (to.name === 'preview-control') {
+    document.title = 'Phira 预览控制';
+    return;
+  }
   nextTick(() => {
     const title = i18n.global.t('title-' + ((to.name as string | undefined | null) || 'default'));
     setTitle(title);

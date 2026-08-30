@@ -487,19 +487,24 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
         #[cfg(target_os = "windows")]
         {
             let ctrl_win_for_dock = ctrl_win.clone();
+            let direct_ctrl_hwnd = ctrl_win.hwnd().ok().map(|h| h.0 as isize).unwrap_or(0);
             tokio::spawn(async move {
                 let ctrl_title: Vec<u16> = "Phira 预览控制\0".encode_utf16().collect();
+                let ctrl_fallback_title: Vec<u16> = "title-preview-control - Phira\0".encode_utf16().collect();
                 let phira_title: Vec<u16> = "Phira\0".encode_utf16().collect();
                 let mut phira_hwnd = 0;
-                let mut ctrl_hwnd = 0;
+                let mut ctrl_hwnd = direct_ctrl_hwnd;
 
-                for _ in 0..80 {
+                for _ in 0..120 {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     if phira_hwnd == 0 {
                         phira_hwnd = unsafe { win32::FindWindowW(std::ptr::null(), phira_title.as_ptr()) };
                     }
                     if ctrl_hwnd == 0 {
                         ctrl_hwnd = unsafe { win32::FindWindowW(std::ptr::null(), ctrl_title.as_ptr()) };
+                    }
+                    if ctrl_hwnd == 0 {
+                        ctrl_hwnd = unsafe { win32::FindWindowW(std::ptr::null(), ctrl_fallback_title.as_ptr()) };
                     }
                     if phira_hwnd != 0 && ctrl_hwnd != 0 {
                         break;
