@@ -23,7 +23,20 @@ echo.
 echo [2/3] Setting up local Rust / Cargo environment...
 set "RUSTUP_HOME=%ROOT_DIR%.rustup"
 set "CARGO_HOME=%ROOT_DIR%.cargo"
-set "PATH=%ROOT_DIR%.cargo\bin;%PATH%"
+
+if not exist "!CARGO_HOME!\bin\cargo.exe" (
+    if exist "%ROOT_DIR%..\..\.cargo\bin\cargo.exe" (
+        set "CARGO_HOME=%ROOT_DIR%..\..\.cargo"
+        set "RUSTUP_HOME=%ROOT_DIR%..\..\.rustup"
+    ) else if exist "%ROOT_DIR%..\.cargo\bin\cargo.exe" (
+        set "CARGO_HOME=%ROOT_DIR%..\.cargo"
+        set "RUSTUP_HOME=%ROOT_DIR%..\.rustup"
+    )
+)
+
+if exist "!CARGO_HOME!\bin\cargo.exe" (
+    set "PATH=!CARGO_HOME!\bin;%PATH%"
+)
 
 echo [3/3] Building release binary (cargo build --release --features custom-protocol)...
 cargo build --release --features custom-protocol --manifest-path "%ROOT_DIR%src-tauri\Cargo.toml"
