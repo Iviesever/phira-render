@@ -39,3 +39,6 @@ node.zip
 rustup-init.exe
 ffmpeg_6.1.1.zip
 audit_preview_vs_render.md
+.worktrees/
+worktrees/
+

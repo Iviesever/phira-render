@@ -25,7 +25,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Instant,
 };
-use std::{ffi::OsStr, fmt::Write as _};
+use std::ffi::OsStr;
 use tempfile::NamedTempFile;
 
 #[derive(Deserialize, Serialize)]
@@ -127,6 +127,120 @@ fn cmd_hidden(program: impl AsRef<OsStr>) -> Command {
     }
     #[cfg(not(target_os = "windows"))]
     cmd
+}
+
+fn video_input_args(width: u32, height: u32, fps: u32) -> Vec<String> {
+    [
+        "-y".to_owned(),
+        "-f".to_owned(),
+        "rawvideo".to_owned(),
+        "-c:v".to_owned(),
+        "rawvideo".to_owned(),
+        "-s".to_owned(),
+        format!("{width}x{height}"),
+        "-r".to_owned(),
+        fps.to_string(),
+        "-pix_fmt".to_owned(),
+        "rgba".to_owned(),
+        "-i".to_owned(),
+        "-".to_owned(),
+        "-i".to_owned(),
+    ]
+    .into()
+}
+
+fn video_output_args(codec: &str, bitrate: &str, fps: u32) -> Vec<String> {
+    let mut args = vec![
+        "-c:a".to_owned(),
+        "aac".to_owned(),
+        "-b:a".to_owned(),
+        "320k".to_owned(),
+        "-c:v".to_owned(),
+        codec.to_owned(),
+    ];
+    match (codec, bitrate) {
+        ("h264_nvenc", "0") => args.extend(["-cq", "18", "-preset", "p5"].map(str::to_owned)),
+        ("h264_qsv", "0") => args.extend(["-global_quality", "18", "-preset", "medium"].map(str::to_owned)),
+        (_, "0") => args.extend(["-crf", "18", "-preset", "medium"].map(str::to_owned)),
+        ("h264_nvenc", bitrate) => args.extend(["-b:v", bitrate, "-preset", "p5"].map(str::to_owned)),
+        (_, bitrate) => args.extend(["-b:v", bitrate, "-preset", "medium"].map(str::to_owned)),
+    }
+    args.extend(
+        [
+            "-profile:v".to_owned(),
+            "high".to_owned(),
+            "-pix_fmt".to_owned(),
+            "yuv420p".to_owned(),
+            "-r".to_owned(),
+            fps.to_string(),
+            "-fps_mode".to_owned(),
+            "cfr".to_owned(),
+            "-g".to_owned(),
+            (fps * 2).to_string(),
+            "-color_primaries".to_owned(),
+            "bt709".to_owned(),
+            "-color_trc".to_owned(),
+            "bt709".to_owned(),
+            "-colorspace".to_owned(),
+            "bt709".to_owned(),
+            "-color_range".to_owned(),
+            "tv".to_owned(),
+            "-map".to_owned(),
+            "0:v:0".to_owned(),
+            "-map".to_owned(),
+            "1:a:0".to_owned(),
+            "-vf".to_owned(),
+            "vflip,scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p".to_owned(),
+            "-movflags".to_owned(),
+            "+faststart".to_owned(),
+            "-f".to_owned(),
+            "mp4".to_owned(),
+        ]
+        .into_iter(),
+    );
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{video_input_args, video_output_args};
+
+    fn contains(args: &[String], expected: &[&str]) -> bool {
+        args.windows(expected.len())
+            .any(|window| window.iter().map(String::as_str).eq(expected.iter().copied()))
+    }
+
+    #[test]
+    fn rawvideo_input_is_cfr_and_does_not_request_cuda_decoding() {
+        let args = video_input_args(1920, 1080, 60);
+        assert!(contains(&args, &["-s", "1920x1080", "-r", "60"]));
+        assert!(!args.iter().any(|arg| arg == "-hwaccel_output_format"));
+    }
+
+    #[test]
+    fn nvenc_fixed_bitrate_uses_bilibili_compatible_output() {
+        let args = video_output_args("h264_nvenc", "12M", 60);
+        assert!(contains(&args, &["-b:v", "12M", "-preset", "p5"]));
+        assert!(contains(&args, &["-profile:v", "high", "-pix_fmt", "yuv420p"]));
+        assert!(contains(&args, &["-r", "60", "-fps_mode", "cfr", "-g", "120"]));
+        assert!(contains(&args, &["-color_primaries", "bt709", "-color_trc", "bt709"]));
+        assert!(contains(&args, &["-colorspace", "bt709", "-color_range", "tv"]));
+        assert!(contains(
+            &args,
+            &["-vf", "vflip,scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p"]
+        ));
+        assert!(contains(&args, &["-movflags", "+faststart"]));
+    }
+
+    #[test]
+    fn quality_modes_match_each_encoder() {
+        assert!(contains(&video_output_args("h264_nvenc", "0", 60), &["-cq", "18", "-preset", "p5"]));
+        assert!(contains(
+            &video_output_args("h264_qsv", "0", 60),
+            &["-global_quality", "18", "-preset", "medium"]
+        ));
+        assert!(contains(&video_output_args("libx264", "0", 60), &["-crf", "18", "-preset", "medium"]));
+    }
 }
 
 pub fn find_ffmpeg() -> Result<Option<String>> {
@@ -370,41 +484,22 @@ pub async fn main() -> Result<()> {
     let use_cuda = params.config.hardware_accel && codecs.contains("h264_nvenc");
     let has_qsv = params.config.hardware_accel && codecs.contains("h264_qsv");
 
-    let mut args = "-y -f rawvideo -c:v rawvideo".to_owned();
-    if use_cuda {
-        args += " -hwaccel_output_format cuda";
-    }
-    write!(&mut args, " -s {vw}x{vh} -r {fps} -pix_fmt rgba -i - -i")?;
-
     let codec = if use_cuda {
-            "h264_nvenc"
-        } else if has_qsv {
-            "h264_qsv"
-        } else if params.config.hardware_accel {
-            bail!(tl!("no-hwacc"));
-        } else {
-            "libx264"
-        };
-
-    let quality_args = if params.config.bitrate == "0" {
-        // CRF/CQ mode for "Export Preview" — high quality, ignore bitrate
-        if use_cuda {
-            "-cq 18 -preset p4".to_owned()
-        } else {
-            "-crf 18 -preset medium".to_owned()
-        }
+        "h264_nvenc"
+    } else if has_qsv {
+        "h264_qsv"
+    } else if params.config.hardware_accel {
+        bail!(tl!("no-hwacc"));
     } else {
-        format!("-b:v {}", params.config.bitrate)
+        "libx264"
     };
-
-    let args2 = format!(
-        "-c:a aac -b:a 320k -c:v {codec} -pix_fmt yuv420p {quality_args} -map 0:v:0 -map 1:a:0 -vf vflip -f mp4",
-    );
+    let input_args = video_input_args(vw, vh, fps);
+    let output_args = video_output_args(codec, &params.config.bitrate, fps);
 
     let mut proc = cmd_hidden(&ffmpeg)
-        .args(args.split_whitespace())
+        .args(input_args)
         .arg(mixing_output.path())
-        .args(args2.split_whitespace())
+        .args(output_args)
         .arg(output_path)
         .stdin(Stdio::piped())
         .stderr(Stdio::inherit())

@@ -72,6 +72,8 @@ en:
   preset-replaced: Preset saved
   preset-cannot-use-default: Cannot use 'default' as preset name
   default-preset: Default
+  bilibili-preset: Bilibili High Quality
+  legacy-preset: Legacy 7M
 
 zh-CN:
   title:
@@ -146,6 +148,8 @@ zh-CN:
   preset-replaced: 预设配置已保存
   preset-cannot-use-default: 不能使用 'default' 作为配置名
   default-preset: 默认
+  bilibili-preset: B站高质量
+  legacy-preset: 旧版 7M
 
 </i18n>
 
@@ -190,7 +194,7 @@ const resolution = ref('1920x1080'),
 
 const fxaa = ref(false),
   sampleCount = ref('4'),
-  bitrate = ref('7M'),
+  bitrate = ref('12M'),
   exportPath = ref<string | null>(localStorage.getItem('lastExportPath') || null);
 
 watch(exportPath, (newVal) => {
@@ -358,7 +362,11 @@ async function buildConfig(): Promise<RenderConfig | null> {
 }
 
 function onEnter() {
-  if (preset.value.key !== 'default') return;
+  if (preset.value.key === DEFAULT_PRESET.key) {
+    resolution.value = RESOLUTIONS[0];
+    return;
+  }
+  if (preset.value.key !== LEGACY_PRESET.key) return;
   resolution.value = RESOLUTIONS[0];
   if (props.initAspectRatio) {
     for (let res of RESOLUTIONS) {
@@ -405,7 +413,7 @@ const DEFAULT_CONFIG: RenderConfig = {
   endingLength: 25.5,
   fps: 60,
   hardwareAccel: true,
-  bitrate: '7M',
+  bitrate: '12M',
 
   aggressive: false,
   challengeColor: 'golden',
@@ -430,26 +438,37 @@ interface Preset {
   name: string;
   key: string;
   config: RenderConfig;
+  builtIn?: boolean;
+  storageKey?: string;
 }
 const DEFAULT_PRESET: Preset = {
-  name: t('default-preset'),
-  key: 'default',
+  name: t('bilibili-preset'),
+  key: 'builtin:bilibili-high-quality',
   config: DEFAULT_CONFIG,
+  builtIn: true,
 };
+const LEGACY_PRESET: Preset = {
+  name: t('legacy-preset'),
+  key: 'builtin:legacy-7m',
+  config: { ...DEFAULT_CONFIG, bitrate: '7M' },
+  builtIn: true,
+};
+const BUILTIN_PRESETS = [DEFAULT_PRESET, LEGACY_PRESET];
 
 async function getPresets() {
-  let result = [DEFAULT_PRESET];
+  let result = [...BUILTIN_PRESETS];
   let pairs = (await invoke('get_presets')) as Record<string, RenderConfig>;
   for (let key of Object.keys(pairs).sort()) {
     result.push({
       name: key,
-      key,
+      key: `user:${key}`,
       config: pairs[key],
+      storageKey: key,
     });
   }
   return result;
 }
-const presets = ref([DEFAULT_PRESET]);
+const presets = ref([...BUILTIN_PRESETS]);
 const preset = ref(DEFAULT_PRESET);
 async function updatePresets() {
   presets.value = await getPresets();
@@ -477,15 +496,16 @@ async function createPreset() {
   try {
     await invoke('add_preset', { name, config });
     await updatePresets();
-    preset.value = presets.value.find((x) => x.key === name) || presets.value[0];
+    preset.value = presets.value.find((x) => x.storageKey === name) || presets.value[0];
     toast(t('preset-created'), 'success');
   } catch (e) {
     toastError(e);
   }
 }
 async function deletePreset() {
+  if (!preset.value.storageKey) return;
   try {
-    await invoke('remove_preset', { name: preset.value.key });
+    await invoke('remove_preset', { name: preset.value.storageKey });
     await updatePresets();
     toast(t('preset-deleted'), 'success');
   } catch (e) {
@@ -493,11 +513,12 @@ async function deletePreset() {
   }
 }
 async function replacePreset() {
+  if (!preset.value.storageKey) return;
   let config = await buildConfig();
   if (!config) return;
   try {
-    await invoke('remove_preset', { name: preset.value.key });
-    await invoke('add_preset', { name: preset.value.key, config });
+    await invoke('remove_preset', { name: preset.value.storageKey });
+    await invoke('add_preset', { name: preset.value.storageKey, config });
     await updatePresets();
     toast(t('preset-replaced'), 'success');
   } catch (e) {
@@ -530,10 +551,10 @@ async function replacePreset() {
         <button class="btn btn-secondary btn-sm" @click="createPreset" :title="t('preset-create')">
           <i class="mdi mdi-plus"></i> {{ t('preset-create') }}
         </button>
-        <button class="btn btn-secondary btn-sm" :disabled="preset.key === 'default'" @click="replacePreset" :title="t('preset-replace')">
+        <button class="btn btn-secondary btn-sm" :disabled="preset.builtIn" @click="replacePreset" :title="t('preset-replace')">
           <i class="mdi mdi-content-save"></i> {{ t('preset-replace') }}
         </button>
-        <button class="btn btn-danger btn-sm" :disabled="preset.key === 'default'" @click="deletePreset" :title="t('preset-delete')">
+        <button class="btn btn-danger btn-sm" :disabled="preset.builtIn" @click="deletePreset" :title="t('preset-delete')">
           <i class="mdi mdi-delete"></i> {{ t('preset-delete') }}
         </button>
       </div>
