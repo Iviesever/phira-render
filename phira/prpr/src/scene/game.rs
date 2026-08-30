@@ -559,15 +559,37 @@ impl GameScene {
         let c = semi_white(self.res.alpha);
         let res = &mut self.res;
         if tm.paused() {
-            let h = 1. / res.aspect_ratio;
-            draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6));
-            let o = if self.mode == GameMode::Exercise { -0.3 } else { 0. };
-            let s = 0.06;
-            let w = 0.05;
+            let ui_top = ui.top;
+            let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
+            let (cx, o, s, w, divider_x, sidebar_w) = if self.mode == GameMode::Exercise {
+                let target_chart_w_norm = (3.555556 / asp).min(1.48);
+                let div_x = -1.0 + target_chart_w_norm;
+                let sw = 1.0 - div_x;
+                let center = div_x + sw / 2.0;
+
+                // Dedicated Right Attached Sidebar Background & Glowing Divider
+                ui.fill_rect(Rect::new(div_x, -ui_top, sw, ui_top * 2.0), Color::new(0.06, 0.08, 0.12, 0.98));
+                ui.fill_rect(Rect::new(div_x - 0.003, -ui_top, 0.003, ui_top * 2.0), Color::new(0.24, 0.32, 0.48, 0.85));
+
+                // Sidebar Header Title
+                ui.text("谱面预览控制")
+                    .pos(center, -ui_top + 0.04)
+                    .anchor(0.5, 0.)
+                    .size(0.60)
+                    .color(Color::new(0.65, 0.78, 0.98, 0.9))
+                    .draw();
+
+                (center, -ui_top + 0.12, 0.035, 0.025, div_x, sw)
+            } else {
+                let h = 1. / res.aspect_ratio;
+                draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.6));
+                (0.0, 0.0, 0.06, 0.05, 1.0, 0.0)
+            };
+
             let no_retry = self.mode == GameMode::NoRetry;
             draw_texture_ex(
                 *res.icon_back,
-                -s * 3. - w,
+                cx - s * 3. - w,
                 -s + o,
                 c,
                 DrawTextureParams {
@@ -575,12 +597,12 @@ impl GameScene {
                     ..Default::default()
                 },
             );
-            let r = Rect::new(0., o, 0., 0.).feather(s);
+            let r = Rect::new(cx, o, 0., 0.).feather(s);
             let disabled_color = semi_white(res.alpha * 0.4);
-            ui.fill_rect(r, (*res.icon_retry, r.feather(0.02), ScaleType::Fit, if no_retry { disabled_color } else { c }));
+            ui.fill_rect(r, (*res.icon_retry, r.feather(0.015), ScaleType::Fit, if no_retry { disabled_color } else { c }));
             draw_texture_ex(
                 *res.icon_resume,
-                s + w,
+                cx + s + w,
                 -s + o,
                 if self.dead { disabled_color } else { c },
                 DrawTextureParams {
@@ -597,7 +619,7 @@ impl GameScene {
                     let p = touch.position;
                     let p = Point::new(p.x, p.y);
                     for i in -1..=1 {
-                        let ct = Point::new((s * 2. + w) * i as f32, o);
+                        let ct = Point::new(cx + (s * 2. + w) * i as f32, o);
                         let d = p - ct;
                         if d.x.abs() <= s && d.y.abs() <= s {
                             clicked = Some(i);
@@ -664,44 +686,42 @@ impl GameScene {
                 }
             }
             if self.mode == GameMode::Exercise {
-                let asp = self.touch_scale();
-                for touch in ui.ensure_touches() {
-                    touch.position *= asp;
-                }
+                let slider_w = sidebar_w * 0.76;
                 ui.scope(|ui| {
-                    ui.dx(0.3);
-                    ui.dy(-0.3);
-                    ui.slider(tl!("speed"), 0.5..2.0, 0.05, &mut self.res.config.speed, Some(0.5));
+                    ui.dx(cx - slider_w * 0.36);
+                    ui.dy(-ui_top + 0.22);
+                    ui.slider(tl!("speed"), 0.5..2.0, 0.05, &mut self.res.config.speed, Some(slider_w * 0.95));
                 });
-                ui.dy(0.06);
-                let hw = 0.72;
-                let h = 0.016;
-                let eh = 0.08;
-                let rad = 0.026;
+                
+                let hw = sidebar_w * 0.38;
+                let track_y = -ui_top + 0.45;
+                let h_bar = 0.009;
+                let eh = 0.045;
+                let rad = 0.016;
                 let sp = self.offset().min(0.) as f64;
                 
                 // Track bar background & border
-                let track_rect = Rect::new(-hw, -h, hw * 2., h * 2.);
-                ui.fill_rect(track_rect.feather(0.003), Color::new(0.24, 0.30, 0.42, 0.8));
+                let track_rect = Rect::new(cx - hw, track_y - h_bar, hw * 2., h_bar * 2.);
+                ui.fill_rect(track_rect.feather(0.002), Color::new(0.24, 0.30, 0.42, 0.8));
                 ui.fill_rect(track_rect, Color::new(0.09, 0.11, 0.16, 0.9));
                 
-                let st = -hw + ((self.exercise_range.start - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
-                let en = -hw + ((self.exercise_range.end - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
+                let st = cx - hw + ((self.exercise_range.start - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
+                let en = cx - hw + ((self.exercise_range.end - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
                 let t = tm.now();
-                let cur = -hw + ((t - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
+                let cur = cx - hw + ((t - sp) / (self.res.track_length - sp)) as f32 * hw * 2.;
                 
                 // Selection range highlight
-                let sel_rect = Rect::new(st, -h, en - st, h * 2.);
+                let sel_rect = Rect::new(st, track_y - h_bar, en - st, h_bar * 2.);
                 ui.fill_rect(sel_rect, Color::new(0.23, 0.51, 0.96, 0.35));
-                ui.fill_rect(Rect::new(st, -h, en - st, 0.003), Color::new(0.35, 0.65, 1.0, 0.8));
-                ui.fill_rect(Rect::new(st, h - 0.003, en - st, 0.003), Color::new(0.35, 0.65, 1.0, 0.8));
+                ui.fill_rect(Rect::new(st, track_y - h_bar, en - st, 0.002), Color::new(0.35, 0.65, 1.0, 0.8));
+                ui.fill_rect(Rect::new(st, track_y + h_bar - 0.002, en - st, 0.002), Color::new(0.35, 0.65, 1.0, 0.8));
 
                 // Blue start pin
-                ui.fill_rect(Rect::new(st - 0.002, -eh, 0.004, eh), Color::new(0.25, 0.6, 1.0, 0.95));
-                ui.fill_circle(st, -eh, rad, Color::new(0.2, 0.55, 1.0, 1.0));
-                ui.fill_circle(st, -eh, rad * 0.38, WHITE);
+                ui.fill_rect(Rect::new(st - 0.0015, track_y - eh, 0.003, eh), Color::new(0.25, 0.6, 1.0, 0.95));
+                ui.fill_circle(st, track_y - eh, rad, Color::new(0.2, 0.55, 1.0, 1.0));
+                ui.fill_circle(st, track_y - eh, rad * 0.38, WHITE);
                 if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(st, -eh, 0., 0.).feather(rad * 1.5));
+                    let r = ui.rect_to_global(Rect::new(st, track_y - eh, 0., 0.).feather(rad * 1.5));
                     self.exercise_press = Judge::get_touches()
                         .iter()
                         .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
@@ -709,11 +729,11 @@ impl GameScene {
                 }
 
                 // Red end pin
-                ui.fill_rect(Rect::new(en - 0.002, 0., 0.004, eh), Color::new(1.0, 0.3, 0.35, 0.95));
-                ui.fill_circle(en, eh, rad, Color::new(1.0, 0.3, 0.35, 1.0));
-                ui.fill_circle(en, eh, rad * 0.38, WHITE);
+                ui.fill_rect(Rect::new(en - 0.0015, track_y, 0.003, eh), Color::new(1.0, 0.3, 0.35, 0.95));
+                ui.fill_circle(en, track_y + eh, rad, Color::new(1.0, 0.3, 0.35, 1.0));
+                ui.fill_circle(en, track_y + eh, rad * 0.38, WHITE);
                 if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(en, eh, 0., 0.).feather(rad * 1.5));
+                    let r = ui.rect_to_global(Rect::new(en, track_y + eh, 0., 0.).feather(rad * 1.5));
                     self.exercise_press = Judge::get_touches()
                         .iter()
                         .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
@@ -721,18 +741,19 @@ impl GameScene {
                 }
 
                 // Green current time cursor
-                ui.fill_rect(Rect::new(cur - 0.0025, -h * 2.2, 0.005, h * 4.4), Color::new(0.1, 0.85, 0.45, 0.95));
-                ui.fill_circle(cur, 0., rad * 0.9, Color::new(0.1, 0.85, 0.45, 1.0));
-                ui.fill_circle(cur, 0., rad * 0.35, WHITE);
+                ui.fill_rect(Rect::new(cur - 0.002, track_y - h_bar * 2.2, 0.004, h_bar * 4.4), Color::new(0.1, 0.85, 0.45, 0.95));
+                ui.fill_circle(cur, track_y, rad * 0.9, Color::new(0.1, 0.85, 0.45, 1.0));
+                ui.fill_circle(cur, track_y, rad * 0.35, WHITE);
                 if self.exercise_press.is_none() {
-                    let r = ui.rect_to_global(Rect::new(cur, 0., 0., 0.).feather(rad * 1.5));
+                    let r = ui.rect_to_global(Rect::new(cur, track_y, 0., 0.).feather(rad * 1.5));
                     self.exercise_press = Judge::get_touches()
                         .iter()
                         .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
                         .map(|it| (0, it.id));
                 }
 
-                // Current time pill box (Top)
+                // Current time pill box (Above Track Bar)
+                let time_y = -ui_top + 0.32;
                 let is_editing = self.exercise_edit_target == Some(2);
                 let text = if is_editing {
                     self.exercise_edit_text.as_str()
@@ -741,32 +762,32 @@ impl GameScene {
                 };
                 let mut tx = ui
                     .text(text)
-                    .pos(0., -0.21)
+                    .pos(cx, time_y)
                     .anchor(0.5, 0.)
-                    .size(0.8)
+                    .size(0.75)
                     .color(Color::new(0.92, 0.96, 1.0, 1.0));
                 let re = tx.measure();
                 self.exercise_btns.2.set(tx.ui, re);
                 if is_editing {
-                    tx.ui.fill_rect(re.feather(0.016), Color::new(0.25, 0.65, 1.0, 0.95));
-                    tx.ui.fill_rect(re.feather(0.012), Color::new(0.11, 0.15, 0.24, 0.98));
+                    tx.ui.fill_rect(re.feather(0.014), Color::new(0.25, 0.65, 1.0, 0.95));
+                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.11, 0.15, 0.24, 0.98));
                 } else {
-                    tx.ui.fill_rect(re.feather(0.012), Color::new(0.24, 0.30, 0.42, 0.7));
-                    tx.ui.fill_rect(re.feather(0.009), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.2.touching() { 0.95 } else { 0.85 }));
+                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.24, 0.30, 0.42, 0.7));
+                    tx.ui.fill_rect(re.feather(0.008), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.2.touching() { 0.95 } else { 0.85 }));
                 }
                 tx.draw();
                 if is_editing && (tm.real_time() * 2.5).fract() < 0.5 {
                     let cur_idx = self.exercise_edit_cursor.min(self.exercise_edit_text.len());
-                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.8).measure().w };
-                    let cx = re.x + w;
-                    ui.fill_rect(Rect::new(cx - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
+                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.75).measure().w };
+                    let cursor_x = re.x + w;
+                    ui.fill_rect(Rect::new(cursor_x - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
                 }
 
                 // Touch seek logic
                 if let Some((ctrl, id)) = &self.exercise_press {
                     if let Some(touch) = Judge::get_touches().iter().rfind(|it| it.id == *id) {
                         let x = touch.position.x;
-                        let p = (x + hw) as f64 / (hw * 2.) as f64 * (self.res.track_length - sp) + sp;
+                        let p = (x - (cx - hw)) as f64 / (hw * 2.) as f64 * (self.res.track_length - sp) + sp;
                         let p = if self.res.track_length - sp <= 3. || *ctrl == 0 {
                             p.clamp(sp, self.res.track_length)
                         } else {
@@ -800,8 +821,8 @@ impl GameScene {
                 }
 
                 // Bottom Range pill boxes (Start 至 End)
-                ui.dy(0.18);
-                let r = ui.text(tl!("to")).size(0.75).color(Color::new(0.65, 0.75, 0.88, 0.9)).anchor(0.5, 0.).draw();
+                let range_y = -ui_top + 0.58;
+                let r = ui.text(tl!("to")).pos(cx, range_y).size(0.65).color(Color::new(0.65, 0.75, 0.88, 0.9)).anchor(0.5, 0.).draw();
                 
                 // Start time box
                 let is_editing = self.exercise_edit_target == Some(0);
@@ -812,25 +833,25 @@ impl GameScene {
                 };
                 let mut tx = ui
                     .text(text)
-                    .pos(r.x - 0.02, 0.)
+                    .pos(r.x - 0.012, range_y)
                     .anchor(1., 0.)
-                    .size(0.8)
+                    .size(0.72)
                     .color(Color::new(0.92, 0.96, 1.0, 1.0));
                 let re = tx.measure();
                 self.exercise_btns.0.set(tx.ui, re);
                 if is_editing {
-                    tx.ui.fill_rect(re.feather(0.016), Color::new(0.25, 0.65, 1.0, 0.95));
-                    tx.ui.fill_rect(re.feather(0.012), Color::new(0.11, 0.15, 0.24, 0.98));
+                    tx.ui.fill_rect(re.feather(0.014), Color::new(0.25, 0.65, 1.0, 0.95));
+                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.11, 0.15, 0.24, 0.98));
                 } else {
-                    tx.ui.fill_rect(re.feather(0.012), Color::new(0.24, 0.30, 0.42, 0.7));
-                    tx.ui.fill_rect(re.feather(0.009), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.0.touching() { 0.95 } else { 0.85 }));
+                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.24, 0.30, 0.42, 0.7));
+                    tx.ui.fill_rect(re.feather(0.008), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.0.touching() { 0.95 } else { 0.85 }));
                 }
                 tx.draw();
                 if is_editing && (tm.real_time() * 2.5).fract() < 0.5 {
                     let cur_idx = self.exercise_edit_cursor.min(self.exercise_edit_text.len());
-                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.8).measure().w };
-                    let cx = re.x + w;
-                    ui.fill_rect(Rect::new(cx - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
+                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.72).measure().w };
+                    let cursor_x = re.x + w;
+                    ui.fill_rect(Rect::new(cursor_x - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
                 }
 
                 // End time box
@@ -842,28 +863,34 @@ impl GameScene {
                 };
                 let mut tx = ui
                     .text(text)
-                    .pos(r.right() + 0.02, 0.)
-                    .size(0.8)
+                    .pos(r.right() + 0.012, range_y)
+                    .size(0.72)
                     .color(Color::new(0.92, 0.96, 1.0, 1.0));
                 let re = tx.measure();
                 self.exercise_btns.1.set(tx.ui, re);
                 if is_editing {
-                    tx.ui.fill_rect(re.feather(0.016), Color::new(0.25, 0.65, 1.0, 0.95));
-                    tx.ui.fill_rect(re.feather(0.012), Color::new(0.11, 0.15, 0.24, 0.98));
+                    tx.ui.fill_rect(re.feather(0.014), Color::new(0.25, 0.65, 1.0, 0.95));
+                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.11, 0.15, 0.24, 0.98));
                 } else {
-                    tx.ui.fill_rect(re.feather(0.012), Color::new(0.24, 0.30, 0.42, 0.7));
-                    tx.ui.fill_rect(re.feather(0.009), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.1.touching() { 0.95 } else { 0.85 }));
+                    tx.ui.fill_rect(re.feather(0.010), Color::new(0.24, 0.30, 0.42, 0.7));
+                    tx.ui.fill_rect(re.feather(0.008), Color::new(0.09, 0.12, 0.18, if self.exercise_btns.1.touching() { 0.95 } else { 0.85 }));
                 }
                 tx.draw();
                 if is_editing && (tm.real_time() * 2.5).fract() < 0.5 {
                     let cur_idx = self.exercise_edit_cursor.min(self.exercise_edit_text.len());
-                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.8).measure().w };
-                    let cx = re.x + w;
-                    ui.fill_rect(Rect::new(cx - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
+                    let w = if cur_idx == 0 { 0. } else { ui.text(&self.exercise_edit_text[..cur_idx]).size(0.72).measure().w };
+                    let cursor_x = re.x + w;
+                    ui.fill_rect(Rect::new(cursor_x - 0.002, re.y + 0.004, 0.004, re.h - 0.008), Color::new(0.35, 0.75, 1.0, 1.0));
                 }
-                for touch in ui.ensure_touches() {
-                    touch.position /= asp;
-                }
+
+                // Shortcut Hints at bottom of sidebar
+                let tip_y = ui_top - 0.035;
+                ui.text("Space 暂停/继续 | R 重播选区")
+                    .pos(cx, tip_y)
+                    .anchor(0.5, 1.)
+                    .size(0.48)
+                    .color(Color::new(0.45, 0.52, 0.65, 0.75))
+                    .draw();
             }
         }
         if let Some(time) = self.pause_rewind {
@@ -1363,25 +1390,21 @@ impl Scene for GameScene {
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
         if self.mode == GameMode::Exercise && tm.paused() {
-            let touch = Touch {
-                position: touch.position * self.touch_scale(),
-                ..touch.clone()
-            };
-            if self.exercise_btns.0.touch(&touch) {
+            if self.exercise_btns.0.touch(touch) {
                 self.exercise_edit_target = Some(0);
                 self.exercise_edit_text = fmt_time(self.exercise_range.start as f32);
                 let ratio = self.exercise_btns.0.ratio(touch.position.x);
                 self.exercise_edit_cursor = (ratio * self.exercise_edit_text.len() as f32).round() as usize;
                 return Ok(true);
             }
-            if self.exercise_btns.1.touch(&touch) {
+            if self.exercise_btns.1.touch(touch) {
                 self.exercise_edit_target = Some(1);
                 self.exercise_edit_text = fmt_time(self.exercise_range.end as f32);
                 let ratio = self.exercise_btns.1.ratio(touch.position.x);
                 self.exercise_edit_cursor = (ratio * self.exercise_edit_text.len() as f32).round() as usize;
                 return Ok(true);
             }
-            if self.exercise_btns.2.touch(&touch) {
+            if self.exercise_btns.2.touch(touch) {
                 self.exercise_edit_target = Some(2);
                 self.exercise_edit_text = fmt_time(tm.now() as f32);
                 let ratio = self.exercise_btns.2.ratio(touch.position.x);

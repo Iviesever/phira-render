@@ -82,7 +82,7 @@ pub fn build_conf() -> macroquad::window::Conf {
     #[cfg(target_os = "windows")]
     enable_hidpi();
 
-    let mut width = 1280;
+    let mut width = 1700;
     let mut height = 720;
 
     let args: Vec<String> = std::env::args().collect();
@@ -345,11 +345,12 @@ async fn parse_chart(path: &Path) -> Result<ChartInfo, InvokeError> {
 async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<(), InvokeError> {
     wrap_async(async move {
         let (pw, ph) = if let Ok(size) = window.outer_size() {
-            let w = size.width as i32;
-            let h = ((w as f32) * (9.0 / 16.0)).round() as i32;
-            (w, h)
+            let h = (size.height as i32).max(640);
+            let chart_w = ((h as f32) * (16.0 / 9.0)).round() as i32;
+            let sidebar_w = 420;
+            (chart_w + sidebar_w, h)
         } else {
-            (1280, 720)
+            (1700, 720)
         };
 
         let mut child = Command::new(std::env::current_exe()?)
