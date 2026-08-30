@@ -1,57 +1,57 @@
 <template>
   <div class="preview-ctrl-container">
-    <!-- Header -->
-    <div class="ctrl-header">
-      <div class="header-left">
-        <div class="status-indicator" :class="{ paused: status.paused }">
-          <i class="mdi" :class="status.paused ? 'mdi-pause' : 'mdi-play'"></i>
-          <span>{{ status.paused ? '已暂停' : '播放中' }}</span>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="btn-icon danger" title="退出预览 (Esc)" @click="sendCmd('exit')">
+    <!-- Top Action & Status Bar -->
+    <div class="top-bar">
+      <button
+        class="play-toggle-btn"
+        :class="{ 'is-paused': status.paused }"
+        title="暂停 / 继续播放 (Space)"
+        @click="sendCmd('toggle_pause')"
+      >
+        <i class="mdi" :class="status.paused ? 'mdi-play' : 'mdi-pause'"></i>
+        <span>{{ status.paused ? '继续播放' : '正在播放' }}</span>
+        <kbd>Space</kbd>
+      </button>
+
+      <div class="top-actions">
+        <button
+          class="action-btn retry-btn"
+          title="重播当前循环选区 (R)"
+          @click="sendCmd('replay')"
+        >
+          <i class="mdi mdi-replay"></i>
+          <span>重播 (R)</span>
+        </button>
+        <button
+          class="action-btn close-btn"
+          title="退出预览 (Esc)"
+          @click="sendCmd('exit')"
+        >
           <i class="mdi mdi-close"></i>
         </button>
       </div>
     </div>
 
-    <!-- Main Controls -->
-    <div class="ctrl-section play-actions">
-      <button class="ctrl-btn retry-btn" title="重播选区 (R)" @click="sendCmd('replay')">
-        <i class="mdi mdi-replay"></i>
-        <span>重播选区</span>
-      </button>
-      <button
-        class="ctrl-btn play-btn"
-        :class="{ 'is-paused': status.paused }"
-        title="暂停/播放 (Space)"
-        @click="sendCmd('toggle_pause')"
-      >
-        <i class="mdi" :class="status.paused ? 'mdi-play' : 'mdi-pause'"></i>
-        <span>{{ status.paused ? '继续播放' : '暂停' }}</span>
-      </button>
-    </div>
-
-    <!-- Speed Adjustment -->
-    <div class="ctrl-section">
-      <div class="section-label">
-        <span>播放速度</span>
-        <span class="value-badge">{{ speedText }}x</span>
+    <!-- Playback Speed Control -->
+    <div class="card speed-card">
+      <div class="card-header">
+        <span class="label">播放速度</span>
+        <span class="value-highlight">{{ speedText }}x</span>
       </div>
-      <div class="slider-row">
-        <button class="step-btn" @click="adjustSpeed(-0.05)">
+      <div class="speed-slider-row">
+        <button class="step-btn" title="减小速度" @click="adjustSpeed(-0.05)">
           <i class="mdi mdi-minus"></i>
         </button>
         <input
           type="range"
-          class="custom-slider"
+          class="speed-slider"
           min="0.5"
           max="2.0"
           step="0.05"
           :value="status.speed"
           @input="onSpeedSlider"
         />
-        <button class="step-btn" @click="adjustSpeed(0.05)">
+        <button class="step-btn" title="增加速度" @click="adjustSpeed(0.05)">
           <i class="mdi mdi-plus"></i>
         </button>
       </div>
@@ -68,93 +68,143 @@
       </div>
     </div>
 
-    <!-- Current Time -->
-    <div class="ctrl-section">
-      <div class="section-label">
-        <span>当前时间戳</span>
-        <span class="total-len">/ {{ fmtTime(status.length) }}</span>
-      </div>
-      <div class="time-box" @click="startEditTime">
-        <input
-          v-if="editingTime"
-          ref="timeInputRef"
-          v-model="editTimeStr"
-          class="time-edit-input"
-          @blur="finishEditTime"
-          @keydown.enter="finishEditTime"
-          @keydown.esc="cancelEditTime"
-        />
-        <span v-else class="time-display">{{ fmtTime(status.time) }}</span>
-        <i class="mdi mdi-pencil-outline edit-icon"></i>
-      </div>
-      <div class="quick-jump-row">
-        <button class="jump-btn" @click="seekDelta(-5)">-5s</button>
-        <button class="jump-btn" @click="seekDelta(-1)">-1s</button>
-        <button class="jump-btn" @click="seekDelta(1)">+1s</button>
-        <button class="jump-btn" @click="seekDelta(5)">+5s</button>
-      </div>
-    </div>
+    <!-- Unified Interactive Timeline & AB Loop Scrubbing Station -->
+    <div class="card timeline-card">
+      <!-- Time Display & Jump Stepper Header -->
+      <div class="time-header-row">
+        <div class="jump-group left">
+          <button class="jump-chip" @click="seekDelta(-5)">-5s</button>
+          <button class="jump-chip" @click="seekDelta(-1)">-1s</button>
+        </div>
 
-    <!-- AB Loop Range -->
-    <div class="ctrl-section">
-      <div class="section-label">
-        <span>AB 循环区间</span>
-        <button class="link-btn" @click="resetRange">重置为全曲</button>
+        <div class="digital-time-box" title="点击就地编辑时间戳" @click="startEditTime">
+          <input
+            v-if="editingTime"
+            ref="timeInputRef"
+            v-model="editTimeStr"
+            class="digital-input"
+            @blur="finishEditTime"
+            @keydown.enter="finishEditTime"
+            @keydown.esc="cancelEditTime"
+          />
+          <template v-else>
+            <span class="cur-time">{{ fmtTime(displayTime) }}</span>
+            <span class="time-sep">/</span>
+            <span class="total-time">{{ fmtTime(status.length) }}</span>
+            <i class="mdi mdi-pencil-outline edit-pen"></i>
+          </template>
+        </div>
+
+        <div class="jump-group right">
+          <button class="jump-chip" @click="seekDelta(1)">+1s</button>
+          <button class="jump-chip" @click="seekDelta(5)">+5s</button>
+        </div>
       </div>
-      
-      <!-- Range track visualization -->
-      <div class="range-track-box">
-        <div class="range-track-bg"></div>
+
+      <!-- Main Interactive Timeline Track (Clickable & Draggable) -->
+      <div
+        ref="trackContainerRef"
+        class="timeline-track-wrap"
+        :class="{ dragging: dragTarget !== null }"
+        @mousedown="onTrackMouseDown"
+        @touchstart.passive="onTrackTouchStart"
+      >
+        <!-- Background Track -->
+        <div class="track-bg-line"></div>
+
+        <!-- Loop Range Selected Bar -->
         <div
-          class="range-selected-bar"
+          class="track-loop-bar"
           :style="{
-            left: `${rangeStartPercent}%`,
+            left: `${startPercent}%`,
             width: `${rangeWidthPercent}%`,
           }"
         ></div>
-        <div class="range-cursor" :style="{ left: `${currentPercent}%` }"></div>
-      </div>
 
-      <div class="range-inputs-row">
-        <div class="range-input-group">
-          <label>起点 (A)</label>
-          <div class="input-with-action">
-            <input
-              type="text"
-              class="range-val-input"
-              :value="fmtTime(status.start)"
-              @change="onStartChange"
-            />
-            <button class="mini-btn" title="设为当前时间" @click="setStartToCurrent">
-              <i class="mdi mdi-map-marker-down"></i>
-            </button>
-          </div>
+        <!-- Loop Start Pin (A - Blue) -->
+        <div
+          class="track-pin pin-start"
+          :style="{ left: `${startPercent}%` }"
+          title="拖拽调整循环起点 (A)"
+          @mousedown.stop="startPinDrag('start', $event)"
+          @touchstart.stop="startPinTouchDrag('start', $event)"
+        >
+          <div class="pin-badge">A</div>
+          <div class="pin-stem"></div>
         </div>
 
-        <div class="range-divider">至</div>
+        <!-- Loop End Pin (B - Red) -->
+        <div
+          class="track-pin pin-end"
+          :style="{ left: `${endPercent}%` }"
+          title="拖拽调整循环终点 (B)"
+          @mousedown.stop="startPinDrag('end', $event)"
+          @touchstart.stop="startPinTouchDrag('end', $event)"
+        >
+          <div class="pin-badge">B</div>
+          <div class="pin-stem"></div>
+        </div>
 
-        <div class="range-input-group">
-          <label>终点 (B)</label>
-          <div class="input-with-action">
-            <input
-              type="text"
-              class="range-val-input"
-              :value="fmtTime(status.end)"
-              @change="onEndChange"
-            />
-            <button class="mini-btn" title="设为当前时间" @click="setEndToCurrent">
+        <!-- Playback Cursor (Current Time - Green) -->
+        <div
+          class="track-cursor"
+          :style="{ left: `${curPercent}%` }"
+          title="拖拽即时跳转时间"
+          @mousedown.stop="startPinDrag('cursor', $event)"
+          @touchstart.stop="startPinTouchDrag('cursor', $event)"
+        >
+          <div class="cursor-head"></div>
+          <div class="cursor-line"></div>
+        </div>
+      </div>
+
+      <!-- AB Loop Range Values & Quick Setters -->
+      <div class="loop-control-footer">
+        <!-- Start A Input -->
+        <div class="loop-point-box">
+          <div class="point-header">
+            <span class="point-tag tag-a">起点 A</span>
+            <button class="set-cur-btn" title="将当前播放时间设为起点" @click="setStartToCurrent">
               <i class="mdi mdi-map-marker-down"></i>
+              <span>设为当前</span>
             </button>
           </div>
+          <input
+            type="text"
+            class="point-input"
+            :value="fmtTime(status.start)"
+            @change="onStartChange"
+          />
+        </div>
+
+        <!-- Reset All Button in center -->
+        <button class="reset-range-btn" title="重置循环区间为全曲" @click="resetRange">
+          <i class="mdi mdi-restore"></i>
+          <span>全曲</span>
+        </button>
+
+        <!-- End B Input -->
+        <div class="loop-point-box right">
+          <div class="point-header right">
+            <button class="set-cur-btn" title="将当前播放时间设为终点" @click="setEndToCurrent">
+              <i class="mdi mdi-map-marker-down"></i>
+              <span>设为当前</span>
+            </button>
+            <span class="point-tag tag-b">终点 B</span>
+          </div>
+          <input
+            type="text"
+            class="point-input right"
+            :value="fmtTime(status.end)"
+            @change="onEndChange"
+          />
         </div>
       </div>
     </div>
 
-    <!-- Shortcuts Footer -->
-    <div class="ctrl-footer">
-      <div class="shortcut-tip">
-        <kbd>Space</kbd> 暂停/继续 · <kbd>R</kbd> 重播 · <kbd>←</kbd><kbd>→</kbd> 步进
-      </div>
+    <!-- Shortcut Hint Footer -->
+    <div class="footer-tips">
+      <span>快捷键：<kbd>Space</kbd> 暂停/继续 · <kbd>R</kbd> 重播 · <kbd>←</kbd><kbd>→</kbd> 步进 1s</span>
     </div>
   </div>
 </template>
@@ -182,6 +232,13 @@ const status = ref<PreviewStatus>({
   length: 180,
 });
 
+// Drag state
+type DragTarget = 'cursor' | 'start' | 'end' | null;
+const dragTarget = ref<DragTarget>(null);
+const draggingTime = ref<number | null>(null);
+const trackContainerRef = ref<HTMLElement>();
+
+// Inline edit time
 const editingTime = ref(false);
 const editTimeStr = ref('');
 const timeInputRef = ref<HTMLInputElement>();
@@ -190,21 +247,37 @@ let unlistenStatus: UnlistenFn | null = null;
 
 const speedText = computed(() => status.value.speed.toFixed(2));
 
-const currentPercent = computed(() => {
-  const len = Math.max(status.value.length, 1);
-  return Math.min(Math.max((status.value.time / len) * 100, 0), 100);
+const displayTime = computed(() => {
+  if (dragTarget.value === 'cursor' && draggingTime.value !== null) {
+    return draggingTime.value;
+  }
+  return status.value.time;
 });
 
-const rangeStartPercent = computed(() => {
+const curPercent = computed(() => {
   const len = Math.max(status.value.length, 1);
-  return Math.min(Math.max((status.value.start / len) * 100, 0), 100);
+  const t = displayTime.value;
+  return Math.min(Math.max((t / len) * 100, 0), 100);
+});
+
+const startPercent = computed(() => {
+  const len = Math.max(status.value.length, 1);
+  const st = dragTarget.value === 'start' && draggingTime.value !== null
+    ? draggingTime.value
+    : status.value.start;
+  return Math.min(Math.max((st / len) * 100, 0), 100);
+});
+
+const endPercent = computed(() => {
+  const len = Math.max(status.value.length, 1);
+  const en = dragTarget.value === 'end' && draggingTime.value !== null
+    ? draggingTime.value
+    : status.value.end;
+  return Math.min(Math.max((en / len) * 100, 0), 100);
 });
 
 const rangeWidthPercent = computed(() => {
-  const len = Math.max(status.value.length, 1);
-  const st = Math.max(status.value.start, 0);
-  const en = Math.min(status.value.end, len);
-  return Math.min(Math.max(((en - st) / len) * 100, 0), 100);
+  return Math.max(0, endPercent.value - startPercent.value);
 });
 
 function fmtTime(sec: number): string {
@@ -233,6 +306,7 @@ function parseTime(str: string): number | null {
   return null;
 }
 
+let pendingCmdTimeout: any = null;
 async function sendCmd(action: string, payload: any = {}) {
   try {
     await invoke('send_preview_command', {
@@ -241,6 +315,14 @@ async function sendCmd(action: string, payload: any = {}) {
   } catch (err) {
     console.error('Failed to send command:', err);
   }
+}
+
+function throttleSeek(time: number) {
+  if (pendingCmdTimeout) return;
+  pendingCmdTimeout = setTimeout(() => {
+    pendingCmdTimeout = null;
+    sendCmd('seek', { time });
+  }, 30);
 }
 
 function setSpeed(val: number) {
@@ -262,9 +344,11 @@ function onSpeedSlider(e: Event) {
 
 function seekDelta(delta: number) {
   const t = Math.max(0, Math.min(status.value.time + delta, status.value.length));
+  status.value.time = t;
   sendCmd('seek', { time: t });
 }
 
+// Inline edit time
 function startEditTime() {
   editingTime.value = true;
   editTimeStr.value = fmtTime(status.value.time);
@@ -279,6 +363,7 @@ function finishEditTime() {
   editingTime.value = false;
   const t = parseTime(editTimeStr.value);
   if (t !== null && t >= 0 && t <= status.value.length) {
+    status.value.time = t;
     sendCmd('seek', { time: t });
   }
 }
@@ -287,9 +372,121 @@ function cancelEditTime() {
   editingTime.value = false;
 }
 
+// Track Dragging & Scrubbing
+function getTimeFromEvent(clientX: number): number {
+  if (!trackContainerRef.value) return 0;
+  const rect = trackContainerRef.value.getBoundingClientRect();
+  const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+  return ratio * status.value.length;
+}
+
+function onTrackMouseDown(e: MouseEvent) {
+  const t = getTimeFromEvent(e.clientX);
+  const len = Math.max(status.value.length, 1);
+  const clickRatio = t / len;
+  const startRatio = status.value.start / len;
+  const endRatio = status.value.end / len;
+
+  // If clicked close to pin A or B, drag that pin; otherwise drag cursor & seek
+  if (Math.abs(clickRatio - startRatio) < 0.03) {
+    startPinDrag('start', e);
+  } else if (Math.abs(clickRatio - endRatio) < 0.03) {
+    startPinDrag('end', e);
+  } else {
+    dragTarget.value = 'cursor';
+    draggingTime.value = t;
+    status.value.time = t;
+    sendCmd('seek', { time: t });
+    window.addEventListener('mousemove', onWindowMouseMove);
+    window.addEventListener('mouseup', onWindowMouseUp);
+  }
+}
+
+function onTrackTouchStart(e: TouchEvent) {
+  if (e.touches.length === 0) return;
+  const clientX = e.touches[0].clientX;
+  const t = getTimeFromEvent(clientX);
+  dragTarget.value = 'cursor';
+  draggingTime.value = t;
+  status.value.time = t;
+  sendCmd('seek', { time: t });
+  window.addEventListener('touchmove', onWindowTouchMove, { passive: false });
+  window.addEventListener('touchend', onWindowTouchEnd);
+}
+
+function startPinDrag(target: DragTarget, e: MouseEvent) {
+  e.preventDefault();
+  dragTarget.value = target;
+  draggingTime.value = target === 'start' ? status.value.start : target === 'end' ? status.value.end : status.value.time;
+  window.addEventListener('mousemove', onWindowMouseMove);
+  window.addEventListener('mouseup', onWindowMouseUp);
+}
+
+function startPinTouchDrag(target: DragTarget, e: TouchEvent) {
+  e.preventDefault();
+  dragTarget.value = target;
+  draggingTime.value = target === 'start' ? status.value.start : target === 'end' ? status.value.end : status.value.time;
+  window.addEventListener('touchmove', onWindowTouchMove, { passive: false });
+  window.addEventListener('touchend', onWindowTouchEnd);
+}
+
+function onWindowMouseMove(e: MouseEvent) {
+  if (!dragTarget.value) return;
+  const t = getTimeFromEvent(e.clientX);
+  applyDragTime(t);
+}
+
+function onWindowTouchMove(e: TouchEvent) {
+  if (!dragTarget.value || e.touches.length === 0) return;
+  e.preventDefault();
+  const t = getTimeFromEvent(e.touches[0].clientX);
+  applyDragTime(t);
+}
+
+function applyDragTime(t: number) {
+  draggingTime.value = t;
+  if (dragTarget.value === 'cursor') {
+    status.value.time = t;
+    throttleSeek(t);
+  } else if (dragTarget.value === 'start') {
+    const st = Math.min(t, status.value.end - 0.5);
+    status.value.start = Math.max(0, st);
+  } else if (dragTarget.value === 'end') {
+    const en = Math.max(t, status.value.start + 0.5);
+    status.value.end = Math.min(status.value.length, en);
+  }
+}
+
+function onWindowMouseUp(e: MouseEvent) {
+  finishDrag(e.clientX);
+  window.removeEventListener('mousemove', onWindowMouseMove);
+  window.removeEventListener('mouseup', onWindowMouseUp);
+}
+
+function onWindowTouchEnd(e: TouchEvent) {
+  const clientX = e.changedTouches.length > 0 ? e.changedTouches[0].clientX : 0;
+  finishDrag(clientX);
+  window.removeEventListener('touchmove', onWindowTouchMove);
+  window.removeEventListener('touchend', onWindowTouchEnd);
+}
+
+function finishDrag(clientX: number) {
+  if (!dragTarget.value) return;
+  const t = clientX ? getTimeFromEvent(clientX) : (draggingTime.value ?? 0);
+  if (dragTarget.value === 'cursor') {
+    status.value.time = t;
+    sendCmd('seek', { time: t });
+  } else if (dragTarget.value === 'start' || dragTarget.value === 'end') {
+    sendCmd('set_range', { start: status.value.start, end: status.value.end });
+  }
+  dragTarget.value = null;
+  draggingTime.value = null;
+}
+
+// Loop Point Setting
 function setStartToCurrent() {
   const st = status.value.time;
-  const en = Math.max(st + 1, status.value.end);
+  const en = Math.max(st + 0.5, status.value.end);
   status.value.start = st;
   status.value.end = en;
   sendCmd('set_range', { start: st, end: en });
@@ -297,7 +494,7 @@ function setStartToCurrent() {
 
 function setEndToCurrent() {
   const en = status.value.time;
-  const st = Math.min(en - 1, status.value.start);
+  const st = Math.min(en - 0.5, status.value.start);
   status.value.start = st;
   status.value.end = en;
   sendCmd('set_range', { start: st, end: en });
@@ -325,6 +522,7 @@ function resetRange() {
   sendCmd('set_range', { start: 0, end: status.value.length });
 }
 
+// Key shortcuts
 function onKeyDown(e: KeyboardEvent) {
   if (editingTime.value) return;
   if (e.code === 'Space') {
@@ -350,7 +548,18 @@ onMounted(async () => {
   unlistenStatus = await listen<string>('preview-status', (event) => {
     try {
       const data = JSON.parse(event.payload);
-      status.value = { ...status.value, ...data };
+      if (dragTarget.value === 'cursor') {
+        const { time, ...rest } = data;
+        status.value = { ...status.value, ...rest };
+      } else if (dragTarget.value === 'start') {
+        const { start, ...rest } = data;
+        status.value = { ...status.value, ...rest };
+      } else if (dragTarget.value === 'end') {
+        const { end, ...rest } = data;
+        status.value = { ...status.value, ...rest };
+      } else {
+        status.value = { ...status.value, ...data };
+      }
     } catch (e) {
       // ignore
     }
@@ -371,163 +580,152 @@ onUnmounted(() => {
   color: #e6edf3;
   display: flex;
   flex-direction: column;
-  padding: 16px;
-  gap: 16px;
+  padding: 14px;
+  gap: 12px;
   overflow-y: auto;
   user-select: none;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   box-sizing: border-box;
 }
 
-/* Header */
-.ctrl-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.status-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #3fb950;
-  background: rgba(63, 185, 80, 0.12);
-  padding: 4px 10px;
-  border-radius: 20px;
-  border: 1px solid rgba(63, 185, 80, 0.25);
-}
-
-.status-indicator.paused {
-  color: #d29922;
-  background: rgba(210, 153, 34, 0.12);
-  border-color: rgba(210, 153, 34, 0.25);
-}
-
-.btn-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
-  border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: #8b949e;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: all 0.15s ease;
-}
-
-.btn-icon:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #f0f6fc;
-}
-
-.btn-icon.danger:hover {
-  background: rgba(248, 81, 73, 0.2);
-  color: #f85149;
-}
-
-/* Sections */
-.ctrl-section {
+/* Cards Base */
+.card {
   background: #161b22;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
 
-.section-label {
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.label {
   font-size: 12px;
   color: #8b949e;
   font-weight: 500;
 }
 
-.value-badge {
-  font-size: 12px;
+.value-highlight {
+  font-size: 13px;
   color: #58a6ff;
-  font-weight: 600;
-  font-family: monospace;
+  font-weight: 700;
+  font-family: 'SF Mono', Consolas, monospace;
 }
 
-.total-len {
-  font-size: 12px;
-  color: #6e7681;
-  font-family: monospace;
-}
-
-/* Action Buttons */
-.play-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* Top Bar */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  background: transparent;
-  border: none;
-  padding: 0;
 }
 
-.ctrl-btn {
+.play-toggle-btn {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px;
+  padding: 10px 14px;
   border-radius: 8px;
-  border: none;
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  background: rgba(35, 134, 54, 0.25);
+  color: #3fb950;
   font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.play-toggle-btn:hover {
+  background: rgba(35, 134, 54, 0.4);
+  border-color: #3fb950;
+}
+
+.play-toggle-btn.is-paused {
+  background: rgba(31, 111, 235, 0.25);
+  border-color: rgba(31, 111, 235, 0.4);
+  color: #58a6ff;
+}
+
+.play-toggle-btn.is-paused:hover {
+  background: rgba(31, 111, 235, 0.4);
+  border-color: #58a6ff;
+}
+
+.play-toggle-btn kbd {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  opacity: 0.8;
+}
+
+.top-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #21262d;
+  color: #c9d1d9;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
+.action-btn:hover {
+  background: #30363d;
+  color: #ffffff;
+}
+
 .retry-btn {
-  background: rgba(88, 166, 255, 0.12);
   color: #58a6ff;
-  border: 1px solid rgba(88, 166, 255, 0.25);
+  border-color: rgba(88, 166, 255, 0.2);
+  background: rgba(88, 166, 255, 0.1);
 }
 
 .retry-btn:hover {
   background: rgba(88, 166, 255, 0.2);
-  border-color: rgba(88, 166, 255, 0.4);
+  color: #79c0ff;
 }
 
-.play-btn {
-  background: #238636;
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.close-btn {
+  padding: 9px 10px;
 }
 
-.play-btn:hover {
-  background: #2ea043;
+.close-btn:hover {
+  background: rgba(248, 81, 73, 0.2);
+  border-color: rgba(248, 81, 73, 0.4);
+  color: #f85149;
 }
 
-.play-btn.is-paused {
-  background: #1f6feb;
-}
-
-.play-btn.is-paused:hover {
-  background: #388bfd;
-}
-
-/* Slider */
-.slider-row {
+/* Speed Slider */
+.speed-slider-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .step-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: #21262d;
@@ -537,6 +735,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 14px;
+  transition: all 0.1s ease;
 }
 
 .step-btn:hover {
@@ -544,7 +743,7 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
-.custom-slider {
+.speed-slider {
   flex: 1;
   accent-color: #58a6ff;
   height: 4px;
@@ -580,40 +779,92 @@ onUnmounted(() => {
   background: rgba(88, 166, 255, 0.15);
   border-color: #58a6ff;
   color: #58a6ff;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-/* Time Box */
-.time-box {
-  background: #0d1117;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  padding: 10px;
+/* Timeline Card */
+.timeline-card {
+  gap: 14px;
+}
+
+.time-header-row {
   display: flex;
   align-items: center;
-  justify-content: center;
-  position: relative;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.jump-group {
+  display: flex;
+  gap: 4px;
+}
+
+.jump-chip {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #21262d;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.jump-chip:hover {
+  background: #30363d;
+  color: #58a6ff;
+}
+
+.digital-time-box {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  position: relative;
   transition: border-color 0.15s ease;
 }
 
-.time-box:hover {
+.digital-time-box:hover {
   border-color: #58a6ff;
 }
 
-.time-display {
-  font-size: 20px;
+.cur-time {
+  font-size: 17px;
   font-weight: 700;
   font-family: 'SF Mono', Consolas, monospace;
-  color: #58a6ff;
-  letter-spacing: 1px;
+  color: #3fb950;
+  letter-spacing: 0.5px;
 }
 
-.time-edit-input {
-  font-size: 20px;
+.time-sep {
+  font-size: 12px;
+  color: #484f58;
+}
+
+.total-time {
+  font-size: 12px;
+  color: #8b949e;
+  font-family: 'SF Mono', Consolas, monospace;
+}
+
+.edit-pen {
+  font-size: 12px;
+  color: #484f58;
+  margin-left: 2px;
+}
+
+.digital-input {
+  font-size: 16px;
   font-weight: 700;
   font-family: 'SF Mono', Consolas, monospace;
-  color: #58a6ff;
+  color: #3fb950;
   background: transparent;
   border: none;
   outline: none;
@@ -621,156 +872,243 @@ onUnmounted(() => {
   width: 100%;
 }
 
-.edit-icon {
-  position: absolute;
-  right: 10px;
-  color: #6e7681;
-  font-size: 14px;
-}
-
-.quick-jump-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-
-.jump-btn {
-  padding: 6px 0;
-  border-radius: 4px;
+/* Main Interactive Timeline Track */
+.timeline-track-wrap {
+  position: relative;
+  height: 48px;
+  background: #0d1117;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: #21262d;
-  color: #c9d1d9;
-  font-size: 12px;
-  font-weight: 500;
+  border-radius: 8px;
   cursor: pointer;
+  overflow: visible;
 }
 
-.jump-btn:hover {
-  background: #30363d;
+.timeline-track-wrap.dragging {
+  cursor: ew-resize;
+}
+
+.track-bg-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 6px;
+  transform: translateY(-50%);
+  background: #21262d;
+  border-radius: 3px;
+}
+
+.track-loop-bar {
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgba(88, 166, 255, 0.4), rgba(248, 81, 73, 0.4));
+  border-left: 2px solid #58a6ff;
+  border-right: 2px solid #f85149;
+  border-radius: 4px;
+}
+
+/* Pins (A & B) */
+.track-pin {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: ew-resize;
+  z-index: 10;
+}
+
+.pin-badge {
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 14px;
+  width: 16px;
+  height: 14px;
+  text-align: center;
+  border-radius: 3px;
   color: #ffffff;
 }
 
-/* Range Track */
-.range-track-box {
-  position: relative;
-  height: 8px;
-  margin: 6px 0;
+.pin-stem {
+  flex: 1;
+  width: 2px;
+  margin-top: 1px;
 }
 
-.range-track-bg {
-  position: absolute;
-  inset: 0;
-  background: #21262d;
-  border-radius: 4px;
+.pin-start .pin-badge {
+  background: #1f6feb;
+  box-shadow: 0 0 6px rgba(31, 111, 235, 0.6);
+}
+.pin-start .pin-stem {
+  background: #58a6ff;
 }
 
-.range-selected-bar {
+.pin-end .pin-badge {
+  background: #da3633;
+  box-shadow: 0 0 6px rgba(218, 54, 51, 0.6);
+}
+.pin-end .pin-stem {
+  background: #f85149;
+}
+
+/* Playback Cursor (Green) */
+.track-cursor {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(88, 166, 255, 0.4);
-  border-radius: 4px;
-  border-left: 2px solid #58a6ff;
-  border-right: 2px solid #f85149;
-}
-
-.range-cursor {
-  position: absolute;
-  top: -3px;
-  width: 3px;
-  height: 14px;
-  background: #3fb950;
-  border-radius: 1px;
+  width: 14px;
   transform: translateX(-50%);
-  box-shadow: 0 0 6px #3fb950;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: ew-resize;
+  z-index: 20;
 }
 
-.range-inputs-row {
+.cursor-head {
+  width: 10px;
+  height: 10px;
+  background: #3fb950;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #3fb950;
+  margin-top: 2px;
+}
+
+.cursor-line {
+  flex: 1;
+  width: 2px;
+  background: #3fb950;
+  box-shadow: 0 0 4px #3fb950;
+}
+
+/* Loop Control Footer */
+.loop-control-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.range-input-group {
+.loop-point-box {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.range-input-group label {
-  font-size: 11px;
-  color: #8b949e;
+.loop-point-box.right {
+  align-items: flex-end;
 }
 
-.input-with-action {
+.point-header {
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.point-header.right {
+  justify-content: flex-end;
+}
+
+.point-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.tag-a {
+  background: rgba(31, 111, 235, 0.2);
+  color: #58a6ff;
+  border: 1px solid rgba(31, 111, 235, 0.3);
+}
+
+.tag-b {
+  background: rgba(218, 54, 51, 0.2);
+  color: #f85149;
+  border: 1px solid rgba(218, 54, 51, 0.3);
+}
+
+.set-cur-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.1s ease;
+}
+
+.set-cur-btn:hover {
+  color: #58a6ff;
+}
+
+.point-input {
   background: #0d1117;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
-  overflow: hidden;
-}
-
-.range-val-input {
-  flex: 1;
-  background: transparent;
-  border: none;
   color: #c9d1d9;
   font-size: 12px;
-  font-family: monospace;
-  padding: 4px 6px;
+  font-family: 'SF Mono', Consolas, monospace;
+  padding: 4px 8px;
   outline: none;
-  width: 0;
+  width: 90px;
+  transition: border-color 0.15s ease;
 }
 
-.mini-btn {
-  background: #21262d;
-  border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  color: #8b949e;
-  padding: 0 6px;
-  cursor: pointer;
+.point-input:focus {
+  border-color: #58a6ff;
+}
+
+.point-input.right {
+  text-align: right;
+}
+
+.reset-range-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
-}
-
-.mini-btn:hover {
-  background: #30363d;
-  color: #58a6ff;
-}
-
-.range-divider {
-  font-size: 11px;
-  color: #6e7681;
-  padding-top: 14px;
-}
-
-.link-btn {
-  background: transparent;
-  border: none;
-  color: #58a6ff;
-  font-size: 11px;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #8b949e;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 6px 8px;
   cursor: pointer;
-  padding: 0;
+  transition: all 0.1s ease;
 }
 
-.link-btn:hover {
-  text-decoration: underline;
+.reset-range-btn i {
+  font-size: 14px;
 }
 
-/* Footer */
-.ctrl-footer {
+.reset-range-btn:hover {
+  background: rgba(88, 166, 255, 0.12);
+  border-color: rgba(88, 166, 255, 0.3);
+  color: #58a6ff;
+}
+
+/* Footer Tips */
+.footer-tips {
   margin-top: auto;
   text-align: center;
-  padding-top: 8px;
-}
-
-.shortcut-tip {
   font-size: 11px;
   color: #6e7681;
+  padding-top: 4px;
 }
 
-.shortcut-tip kbd {
+.footer-tips kbd {
   background: #21262d;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 3px;
