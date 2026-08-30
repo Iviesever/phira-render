@@ -344,6 +344,28 @@ impl Judge {
         self.last_time = t;
     }
 
+    /// Advance note pointers past notes before time `t`, marking them as judged
+    /// and committing them as Perfect to accumulate combo and score silently.
+    pub fn advance_to_with_score(&mut self, chart: &mut Chart, t: f64) {
+        let mut to_commit = Vec::new();
+        for (line_id, (line, (idx, st))) in chart.lines.iter_mut().zip(self.notes.iter_mut()).enumerate() {
+            while *st < idx.len() {
+                let note_id = idx[*st];
+                let note = &mut line.notes[note_id as usize];
+                if note.time >= t {
+                    break;
+                }
+                note.judge = JudgeStatus::Judged;
+                to_commit.push((note.time, line_id as u32, note_id));
+                *st += 1;
+            }
+        }
+        for (time, line_id, note_id) in to_commit {
+            self.commit(time, Judgement::Perfect, line_id, note_id, 0.0);
+        }
+        self.last_time = t;
+    }
+
     pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64) {
         self.judgements.borrow_mut().push((t, line_id, note_id, Ok(what)));
         self.inner.commit(what, diff);

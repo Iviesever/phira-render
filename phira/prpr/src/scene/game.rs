@@ -839,30 +839,44 @@ impl Scene for GameScene {
                                 if tm.now() > self.exercise_range.end || tm.now() < self.exercise_range.start {
                                     tm.seek_to(self.exercise_range.start);
                                     self.music.seek_to(self.exercise_range.start).ok();
+                                    self.bad_notes.clear();
+                                    self.judge.reset();
+                                    self.chart.reset();
+                                    self.judge.advance_to_with_score(&mut self.chart, self.exercise_range.start);
                                 }
                                 self.music.play().ok();
                                 tm.resume();
+                                self.state = State::Playing;
                             }
                             PreviewAction::TogglePause => {
                                 if tm.paused() {
                                     if tm.now() > self.exercise_range.end || tm.now() < self.exercise_range.start {
                                         tm.seek_to(self.exercise_range.start);
                                         self.music.seek_to(self.exercise_range.start).ok();
+                                        self.bad_notes.clear();
+                                        self.judge.reset();
+                                        self.chart.reset();
+                                        self.judge.advance_to_with_score(&mut self.chart, self.exercise_range.start);
                                     }
                                     self.music.play().ok();
                                     tm.resume();
+                                    self.state = State::Playing;
                                 } else {
                                     tm.pause();
                                     self.music.pause().ok();
                                 }
                             }
                             PreviewAction::Replay => {
-                                reset!(self, self.res, tm);
-                                self.judge.advance_to(&mut self.chart, self.exercise_range.start);
+                                self.bad_notes.clear();
+                                self.judge.reset();
+                                self.chart.reset();
+                                self.judge.advance_to_with_score(&mut self.chart, self.exercise_range.start);
+                                self.res.judge_line_color = self.res.res_pack.info.color_perfect();
+                                tm.seek_to(self.exercise_range.start);
                                 self.music.seek_to(self.exercise_range.start).ok();
                                 self.music.play().ok();
                                 tm.resume();
-                                tm.seek_to(self.exercise_range.start);
+                                self.state = State::Playing;
                             }
                             PreviewAction::Seek { time } => {
                                 tm.seek_to(time);
@@ -870,6 +884,7 @@ impl Scene for GameScene {
                                 self.bad_notes.clear();
                                 self.judge.reset();
                                 self.chart.reset();
+                                self.judge.advance_to_with_score(&mut self.chart, time);
                                 self.res.judge_line_color = self.res.res_pack.info.color_perfect();
                             }
                             PreviewAction::SetSpeed { speed } => {
@@ -919,14 +934,15 @@ impl Scene for GameScene {
         }
 
         if self.mode == GameMode::Exercise && tm.now() > self.exercise_range.end && !tm.paused() {
-            let state = self.state.clone();
-            reset!(self, self.res, tm);
-            self.state = state;
+            self.bad_notes.clear();
+            self.judge.reset();
+            self.chart.reset();
+            self.judge.advance_to_with_score(&mut self.chart, self.exercise_range.start);
+            self.res.judge_line_color = self.res.res_pack.info.color_perfect();
             tm.seek_to(self.exercise_range.start);
+            self.music.seek_to(self.exercise_range.start)?;
             tm.pause();
             self.music.pause()?;
-            #[cfg(target_env = "ohos")]
-            miniquad::native::set_interceptor_state(false);
         }
         let offset = self.offset();
         let time = tm.now();
