@@ -1126,6 +1126,9 @@ impl Scene for GameScene {
             miniquad::native::set_interceptor_state(false);
             show_message(tl!("game-over")).error();
         }
+        if self.res.time == 0. {
+            self.res.time = f64::EPSILON;
+        }
         self.res.judge_line_color.a *= self.res.alpha;
         self.chart.update(&mut self.res);
         let res = &mut self.res;
@@ -1402,6 +1405,12 @@ impl Scene for GameScene {
         if res.config.particle {
             res.emitter.draw(dt);
         }
+        let capturing = self.capture_request.is_some();
+        if !capturing {
+            self.ui(ui, tm)?;
+            self.overlay_ui(ui, tm)?;
+        }
+
         if self.mode == GameMode::TweakOffset {
             push_camera_state();
             self.gl.quad_gl.viewport(None);
@@ -1459,12 +1468,13 @@ impl Scene for GameScene {
             }
         }
 
-        self.gl.quad_gl.render_pass(self.res.camera.render_pass());
-        self.gl.quad_gl.viewport(Some(ui.viewport));
-        set_camera(&self.res.camera);
-
-        self.ui(ui, tm)?;
-        self.overlay_ui(ui, tm)?;
+        if capturing {
+            self.gl.quad_gl.render_pass(self.res.camera.render_pass());
+            self.gl.quad_gl.viewport(Some(ui.viewport));
+            set_camera(&self.res.camera);
+            self.ui(ui, tm)?;
+            self.overlay_ui(ui, tm)?;
+        }
         self.gl.flush();
         if let Some((save_path, to_clipboard, clipboard_filename)) = self.capture_request.take() {
             let img = get_screen_data();
