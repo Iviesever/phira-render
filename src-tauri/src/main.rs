@@ -435,7 +435,7 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
             tauri::WindowUrl::App("/preview-control".into()),
         )
         .title("Phira 预览控制")
-        .inner_size(360.0, 720.0)
+        .inner_size(380.0, 720.0)
         .resizable(true)
         .always_on_top(false)
         .skip_taskbar(true)
@@ -515,13 +515,21 @@ async fn preview_chart(window: tauri::Window, params: RenderParams) -> Result<()
                                     let target_y = rect.top;
                                     let target_h = (rect.bottom - rect.top).max(400);
 
+                                    let mut ctrl_rect: win32::RECT = unsafe { std::mem::zeroed() };
+                                    let target_w = if unsafe { win32::GetWindowRect(ctrl_hwnd, &mut ctrl_rect) } != 0 {
+                                        let w = ctrl_rect.right - ctrl_rect.left;
+                                        if w > 100 { w } else { 380 }
+                                    } else {
+                                        380
+                                    };
+
                                     unsafe {
                                         win32::SetWindowPos(
                                             ctrl_hwnd,
                                             0,
                                             target_x,
                                             target_y,
-                                            360,
+                                            target_w,
                                             target_h,
                                             win32::SWP_NOACTIVATE | win32::SWP_NOZORDER,
                                         );

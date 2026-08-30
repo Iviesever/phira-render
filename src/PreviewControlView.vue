@@ -623,16 +623,18 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .play-toggle-btn {
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid rgba(63, 185, 80, 0.3);
   background: rgba(35, 134, 54, 0.25);
@@ -670,22 +672,24 @@ onUnmounted(() => {
 
 .top-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 9px 12px;
+  gap: 3px;
+  padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: #21262d;
   color: #c9d1d9;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 
@@ -706,7 +710,7 @@ onUnmounted(() => {
 }
 
 .close-btn {
-  padding: 9px 10px;
+  padding: 8px 9px;
 }
 
 .close-btn:hover {
@@ -734,6 +738,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 14px;
+  flex-shrink: 0;
   transition: all 0.1s ease;
 }
 
@@ -753,12 +758,13 @@ onUnmounted(() => {
 
 .speed-chips {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   justify-content: space-between;
 }
 
 .chip-btn {
   flex: 1;
+  min-width: 0;
   padding: 4px 0;
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -783,23 +789,24 @@ onUnmounted(() => {
 
 /* Timeline Card */
 .timeline-card {
-  gap: 14px;
+  gap: 12px;
 }
 
 .time-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4px;
 }
 
 .jump-group {
   display: flex;
-  gap: 4px;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
 .jump-chip {
-  padding: 4px 6px;
+  padding: 3px 5px;
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: #21262d;
@@ -817,14 +824,15 @@ onUnmounted(() => {
 
 .digital-time-box {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   background: #0d1117;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   cursor: pointer;
   position: relative;
   transition: border-color 0.15s ease;
@@ -835,7 +843,7 @@ onUnmounted(() => {
 }
 
 .cur-time {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   font-family: 'SF Mono', Consolas, monospace;
   color: #3fb950;
@@ -843,24 +851,24 @@ onUnmounted(() => {
 }
 
 .time-sep {
-  font-size: 12px;
+  font-size: 11px;
   color: #484f58;
 }
 
 .total-time {
-  font-size: 12px;
+  font-size: 11px;
   color: #8b949e;
   font-family: 'SF Mono', Consolas, monospace;
 }
 
 .edit-pen {
-  font-size: 12px;
+  font-size: 11px;
   color: #484f58;
   margin-left: 2px;
 }
 
 .digital-input {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   font-family: 'SF Mono', Consolas, monospace;
   color: #3fb950;
@@ -991,11 +999,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .loop-point-box {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1008,7 +1017,7 @@ onUnmounted(() => {
 .point-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .point-header.right {
@@ -1016,9 +1025,9 @@ onUnmounted(() => {
 }
 
 .point-tag {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 3px;
 }
 
@@ -1041,9 +1050,10 @@ onUnmounted(() => {
   background: transparent;
   border: none;
   color: #8b949e;
-  font-size: 10px;
+  font-size: 9px;
   cursor: pointer;
   padding: 0;
+  white-space: nowrap;
   transition: color 0.1s ease;
 }
 
@@ -1056,11 +1066,12 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
   color: #c9d1d9;
-  font-size: 12px;
+  font-size: 11px;
   font-family: 'SF Mono', Consolas, monospace;
-  padding: 4px 8px;
+  padding: 3px 6px;
   outline: none;
-  width: 90px;
+  width: 78px;
+  box-sizing: border-box;
   transition: border-color 0.15s ease;
 }
 
@@ -1081,15 +1092,16 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
   color: #8b949e;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  padding: 6px 8px;
+  padding: 4px 6px;
   cursor: pointer;
+  flex-shrink: 0;
   transition: all 0.1s ease;
 }
 
 .reset-range-btn i {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .reset-range-btn:hover {
